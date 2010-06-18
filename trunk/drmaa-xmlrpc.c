@@ -1,3 +1,19 @@
+// xmlrpc-c wrapper around drmaa interface
+// Copyright (C) 2010 Lev Kuznetsov
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 // export LD_LIBRARY_PATH=/home/lgrcws/drmaaxml2/lib
 // gcc -I/home/lgrcws/src/xmlrpc-c-1.16.29-I/usr/include -I/home/lgrcws/drmaaxml2/include -L/usr/lib64 -L/home/lgrcws/drmaaxml2/lib -ldrmaa -lxmlrpc -lxmlrpc_server -lxmlrpc_server_abyss -lxmlrpc_abyss -lxmlrpc_xmlparse -lxmlrpc_xmltok -lxmlrpc_util -o drmaa-xmlrpc drmaa-xmlrpc.c
 // ./drmaa-xmlrpc
