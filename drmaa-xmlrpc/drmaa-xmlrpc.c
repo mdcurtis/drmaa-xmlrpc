@@ -1,18 +1,9 @@
-// xmlrpc-c wrapper around drmaa interface                                                 
-// Copyright (C) 2010 Lev Kuznetsov                                                        
-//                                                                                         
-// This program is free software: you can redistribute it and/or modify                    
-// it under the terms of the GNU General Public License as published by                    
-// the Free Software Foundation, either version 3 of the License, or                       
-// (at your option) any later version.                                                     
-// 
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+/*
+ * drmaa-xmlrpc.c
+ *
+ *  Created on: Oct 5, 2010
+ *      Author: levk
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +14,10 @@
 #include <xmlrpc-c/server.h>
 #include <xmlrpc-c/server_abyss.h>
 #else // DRMAA_XMLRPC_CGI
+#warning PRESENT OPERATION PRINCIPLE OF PASSING THE MEMORY ADDRESS TO THE
+#warning CLIENT AS THE SESSION TOKEN WILL NOT WORK FOR CGI BECAUSE THE
+#warning PROCESS GOES AWAY BETWEEN CALLS. A DIFFERENT PRINCIPLE IS NEEDED
+#warning FOR CGI OPERATION.
 #include <xmlrpc.h>
 #include <xmlrpc_cgi.h>
 #endif // DRMAA_XMLRPC_CGI
@@ -53,18 +48,21 @@ static xmlrpc_value *
 xmlrpc_drmaa_allocate_job_template (xmlrpc_env * const env,
                                     xmlrpc_value * const param_array,
                                     void * const xmlrpc_data) {
-  drmaa_job_template_t *jt;
+  drmaa_job_template_t *jt = NULL;
   INIT_ERROR_BUFFER(error);
+  serialized_job_template_t sjt;
 
   int rc;
   while ((rc = drmaa_allocate_job_template (&jt, error, sizeof (error)))
          == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
 
-  return xmlrpc_build_value (env,
-                             "((si)(s" JOB_TEMPLATE_SERIALIZED_XMLRPC_VALUE_TYPE ")(ss))",
-                             "rc", rc,
-                             "jt", serialize_job_template (jt),
-                             "error", error);
+  xmlrpc_value *result = xmlrpc_build_value (env,
+                                             "((si)(s" JOB_TEMPLATE_SERIALIZED_XMLRPC_VALUE_TYPE ")(ss))",
+                                             "rc", rc,
+                                             "jt", sjt = serialize_job_template (jt),
+                                             "error", error);
+  release_serialized_job_template_type (sjt);
+  return result;
 }
 
 /**
@@ -363,13 +361,7 @@ int main (int argc, char **argv) {
 
 static serialized_job_template_t serialize_job_template (drmaa_job_template_t *jt) {
   char *result = (char*) malloc (MAX_ADDRESS_ASCII_LENGTH);
-  sprintf (result,
-#if __WORDSIZE == 64
-            "%llu", (unsigned long long)
-#else
-            "%u", (unsigned int)
-#endif
-            jt);
+  sprintf (result, "%p", jt);
   return (serialized_job_template_t) result;
 }
 
@@ -380,12 +372,6 @@ static void release_serialized_job_template_type (serialized_job_template_t sjt)
 static drmaa_job_template_t *deserialize_job_template (serialized_job_template_t sjt) {
   char *address = (char*) sjt;
   drmaa_job_template_t *result = NULL;
-  sscanf (address,
-#if __WORDSIZE == 64
-            "%llu", (unsigned long long*)
-#else
-            "%u", (unsigned int*)
-#endif
-            &result);
+  sscanf (address, "%p", &result);
   return result;
 }
