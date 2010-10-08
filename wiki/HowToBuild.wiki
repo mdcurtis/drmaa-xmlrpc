@@ -7,7 +7,7 @@ One of these days I'll figure out a better way to do this, but for now this buil
 = Details =
 
 This is how it works at the moment:
-<li>The makefiles can do [default], clean, and install
+<li>The makefiles can do default, clean, and install
 <li>Dependencies of sub-folders is foreach depends on nothing; config depends on foreach; drmaa-xmlrpc depends on config, xmlrpc-c, and libdrmaa
 <li>'make install' at the top level will first put foreach and config headers and static libraries into ~/include and ~/lib respectively. config will look for foreach stuff there, so if you just create those folders it should get you this far. After that it will try to compile drmaa-xmlrpc and put the executable in ~/bin. For this step to succeed, you will need:
 <br>a) xmlrpc-c in some way, whether you just get it from your repository or download a specific version, once you have it you should have xmlrpc-c-config executable somewhere on your system, you can edit drmaa-xmlrpc/makefile and set XMLRPC_C_CONFIG variable to its location
