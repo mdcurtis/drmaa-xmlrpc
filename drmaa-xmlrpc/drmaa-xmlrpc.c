@@ -329,7 +329,7 @@ xmlrpc_drmaa_run_job (xmlrpc_env * const env,
                                  "((si)(ss)(ss))",
                                  "rc", rc, "jobid", jobid, "error", error);
     } else {
-      LOG (TEMPLATE | JOB | WARNING, "fault occurred while deserializing job template in run job\n")
+      LOG (TEMPLATE | JOB | WARNING, "fault occurred while deserializing job template in run job\n");
       return xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -2, "jobid", "not available", "error"
                                  "fault occurred while deserializing job template");
     }
