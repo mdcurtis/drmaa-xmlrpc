@@ -14,10 +14,6 @@
 #include <xmlrpc-c/server.h>
 #include <xmlrpc-c/server_abyss.h>
 #else // DRMAA_XMLRPC_CGI
-#warning PRESENT OPERATION PRINCIPLE OF PASSING THE MEMORY ADDRESS TO THE
-#warning CLIENT AS THE SESSION TOKEN WILL NOT WORK FOR CGI BECAUSE THE
-#warning PROCESS GOES AWAY BETWEEN CALLS. A DIFFERENT PRINCIPLE IS NEEDED
-#warning FOR CGI OPERATION.
 #include <xmlrpc.h>
 #include <xmlrpc_cgi.h>
 #endif // DRMAA_XMLRPC_CGI
@@ -26,8 +22,42 @@
 #include <sys/signal.h>
 #include <unistd.h>
 #include <limits.h>
+#include <time.h>
 
 #define CONF_FILE_PATH_ENV_NAME_FOR_CGI "DRMAA_XMLRPC_CGI_CONF_PATH"
+
+struct {
+  int daemon;
+  int port;
+
+  FILE *pid_file;
+  FILE *log_file;
+  unsigned long long log_mask;
+  char *abyss_log_file_name;
+} configuration;
+
+#define SEVERE (1L << 63)
+#define WARNING (1L << 62)
+#define INFO (1L << 61)
+
+#define CONFIG (1L)
+#define TEMPLATE (1L << 1)
+#define JOB (1L << 2)
+#define DRMAA (1L << 3)
+
+static char *_log_mask_to_level (unsigned long long mask) {
+  if (mask & SEVERE) return "SEVERE";
+  else if (mask & WARNING) return "WARNING";
+  else if (mask & INFO) return "INFO";
+  else return "TRACE";
+}
+
+#define LOG(MASK, ... ) \
+  if ((configuration.log_mask & (MASK)) && configuration.log_file) { \
+    time_t rt; struct tm * ti; time ( &rt ); ti = localtime ( &rt ); \
+    fprintf (configuration.log_file, "[%02d:%02d:%02d] %s ", \
+             ti->tm_hour, ti->tm_min, ti->tm_sec, _log_mask_to_level (MASK)); \
+    fprintf (configuration.log_file, __VA_ARGS__ ); } else
 
 #define ERROR_DIAGNOSIS_MAX DRMAA_ERROR_STRING_BUFFER
 #define INIT_ERROR_BUFFER(X) char X[ERROR_DIAGNOSIS_MAX]; memset (X, 0, ERROR_DIAGNOSIS_MAX)
@@ -48,6 +78,7 @@ static xmlrpc_value *
 xmlrpc_drmaa_allocate_job_template (xmlrpc_env * const env,
                                     xmlrpc_value * const param_array,
                                     void * const xmlrpc_data) {
+#ifndef DRMAA_XMLRPC_CGI
   drmaa_job_template_t *jt = NULL;
   INIT_ERROR_BUFFER(error);
   serialized_job_template_t sjt;
@@ -56,6 +87,9 @@ xmlrpc_drmaa_allocate_job_template (xmlrpc_env * const env,
   while ((rc = drmaa_allocate_job_template (&jt, error, sizeof (error)))
          == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
 
+  LOG (TEMPLATE | (rc ? WARNING : 0),
+       "done allocating a job template @%p%s%s\n",
+       jt, rc ? "; non-successful return code, with diagnostic: " : "", error);
   xmlrpc_value *result = xmlrpc_build_value (env,
                                              "((si)(s" JOB_TEMPLATE_SERIALIZED_XMLRPC_VALUE_TYPE ")(ss))",
                                              "rc", rc,
@@ -63,6 +97,12 @@ xmlrpc_drmaa_allocate_job_template (xmlrpc_env * const env,
                                              "error", error);
   release_serialized_job_template_type (sjt);
   return result;
+#else // DRMAA_XMLRPC_CGI
+#warning drmaa_allocate_job_template() is not supported by this compilation
+  LOG (TEMPLATE | INFO, "allocate job is not supported with this compilation");
+  return xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
+                             "xmlrpc_drmaa_allocate_job_template is not supported on this compilation");
+#endif // DRMAA_XMLRPC_CGI
 }
 
 /**
@@ -73,6 +113,7 @@ static xmlrpc_value *
 xmlrpc_drmaa_delete_job_template (xmlrpc_env * const env,
                                   xmlrpc_value * const param_array,
                                   void * const xmlrpc_data) {
+#ifndef DRMAA_XMLRPC_CGI
   INIT_ERROR_BUFFER(error);
 
   serialized_job_template_t sjt;
@@ -86,13 +127,28 @@ xmlrpc_drmaa_delete_job_template (xmlrpc_env * const env,
       int rc;
       while ((rc = drmaa_delete_job_template (jt, error, sizeof (error)))
              == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
+      LOG (TEMPLATE | (rc ? WARNING : 0),
+           "done deleting a job template @%p%s%s\n",
+           jt, rc ? "; non-successful return code, with diagnostic: " : "", error);
       return xmlrpc_build_value (env,
                                  "((si)(ss))",
                                  "rc", rc, "error", error);
-    } else return xmlrpc_build_value (env, "((si)(ss))", "rc", -2, "error",
-                                      "fault occurred while deserializing job template");
-  } else return xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
+    } else {
+      LOG (TEMPLATE | WARNING, "fault occurred while deserializing job template in delete template\n");
+      return xmlrpc_build_value (env, "((si)(ss))", "rc", -2, "error",
+                                 "fault occurred while deserializing job template");
+    }
+  } else {
+    LOG (TEMPLATE | WARNING, "fault occurred while decomposing parameter in delete template\n");
+    return xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
                                     "fault occurred while decomposing parameter");
+  }
+#else // DRMAA_XMLRPC_CGI
+#warning drmaa_delete_job_template() is not supported by this compilation
+  LOG (TEMPLATE | INFO, "delete job is not supported with this compilation");
+  return xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
+                             "xmlrpc_drmaa_delete_job_template is not supported on this implementation");
+#endif // DRMAA_XMLRPC_CGI
 }
 
 /**
@@ -103,6 +159,7 @@ static xmlrpc_value *
 xmlrpc_drmaa_set_attribute (xmlrpc_env * const env,
                             xmlrpc_value * const param_array,
                             void * const xmlrpc_data) {
+#ifndef DRMAA_XMLRPC_CGI
   INIT_ERROR_BUFFER(error);
 
   serialized_job_template_t sjt;
@@ -119,16 +176,31 @@ xmlrpc_drmaa_set_attribute (xmlrpc_env * const env,
       int rc;
       while ((rc = drmaa_set_attribute(jt, name, value, error, sizeof (error)))
              == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
+      LOG (TEMPLATE | (rc ? WARNING : 0),
+           "done setting attribute %s=%s for job template @%p%s%s\n",
+           name, value,
+           jt, rc ? "; non-successful return code, with diagnostic: " : "", error);
       result = xmlrpc_build_value (env,
                                    "((si)(ss))",
                                    "rc", rc, "error", error);
-    } else result = xmlrpc_build_value (env, "((si)(ss))", "rc", -2, "error",
-                                        "fault occurred while deserializing job template");
-  } else result = xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
-                                      "fault occurred while decomposing parameters");
+    } else {
+      LOG (TEMPLATE | WARNING, "fault occurred while deserializing job template in set attribute\n");
+      result = xmlrpc_build_value (env, "((si)(ss))", "rc", -2, "error",
+                                   "fault occurred while deserializing job template");
+    }
+  } else {
+    LOG (TEMPLATE | WARNING, "fault occurred while decomposing parameters in set attribute\n");
+    result = xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
+                                 "fault occurred while decomposing parameters");
+  }
   free (name);
   free (value);
   return result;
+#else // DRMAA_XMLRPC_CGI
+#warning drmaa_set_attribute() is not supported by this compilation
+  return xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
+                             "xmlrpc_drmaa_set_attribute is not supported on this implementation");
+#endif // DRMAA_XMLRPC_CGI
 }
 
 /**
@@ -139,6 +211,7 @@ static xmlrpc_value *
 xmlrpc_drmaa_set_vector_attribute (xmlrpc_env * const env,
                             xmlrpc_value * const param_array,
                             void * const xmlrpc_data) {
+#ifndef DRMAA_XMLRPC_CGI
   INIT_ERROR_BUFFER(error);
 
   xmlrpc_value *x_sjt;
@@ -173,12 +246,31 @@ xmlrpc_drmaa_set_vector_attribute (xmlrpc_env * const env,
         result = xmlrpc_build_value (env,
                                      "((si)(ss))",
                                      "rc", rc, "error", error);
-      } else result = xmlrpc_build_value (env, "((si)(ss))", "rc", -2, "error",
-                                          "fault occurred while deserializing job template");
-    } else result = xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
-                                        "fault occurred while decomposing parameters");
-  } else result = xmlrpc_build_value (env, "(si)(ss)", "rc", -1, "error",
-                                      "failed to allocate memory for values array");
+        LOG (TEMPLATE | (rc ? WARNING : 0),
+             "done setting attribute %s=[%s%s%s%s%s%s%s%s%s] for job template @%p%s%s\n",
+             name,
+             values_count > 0 ? values[0] : "",
+             values_count > 1 ? ", " : "", values_count > 1 ? values[1] : "",
+             values_count > 2 ? ", " : "", values_count > 2 ? values[2] : "",
+             values_count > 3 ? ", " : "", values_count > 3 ? values[3] : "",
+             values_count > 4 ? ", " : "", values_count > 4 ? (values_count > 5 ? "..." : values[4]) : "",
+             jt, rc ? "; non-successful return code, with diagnostic: " : "", error);
+      } else {
+        LOG (TEMPLATE | WARNING, "fault occurred while deserializing job template in set vector attribute\n");
+        result = xmlrpc_build_value (env, "((si)(ss))", "rc", -2, "error",
+                                     "fault occurred while deserializing job template");
+      }
+    } else {
+      LOG (TEMPLATE | WARNING, "fault occurred while decomposing parameters in set vector attribute\n");
+      result = xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
+                                   "fault occurred while decomposing parameters");
+    }
+  } else {
+    LOG (TEMPLATE | WARNING, "failed to allocate memory for values array in set vector attribute\n");
+    result = xmlrpc_build_value (env, "(si)(ss)", "rc", -1, "error",
+                                 "failed to allocate memory for values array");
+  }
+
   if (values) {
 	  int i;
 	  for (i = 0; i < values_count; i++) free (values [i]);
@@ -186,6 +278,11 @@ xmlrpc_drmaa_set_vector_attribute (xmlrpc_env * const env,
   free (name);
   free (values);
   return result;
+#else // DRMAA_XMLRPC_CGI
+#warning drmaa_set_vector_attribute() is not supported by this compilation
+  return xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
+                             "xmlrpc_drmaa_set_vector_attribute is not supported on this implementation");
+#endif // DRMAA_XMLRPC_CGI
 }
 
 /**
@@ -196,6 +293,7 @@ static xmlrpc_value *
 xmlrpc_drmaa_run_job (xmlrpc_env * const env,
                       xmlrpc_value * const param_array,
                       void * const xmlrpc_data) {
+#ifndef DRMAA_XMLRPC_CGI
   INIT_ERROR_BUFFER(error);
 
   serialized_job_template_t sjt;
@@ -210,13 +308,27 @@ xmlrpc_drmaa_run_job (xmlrpc_env * const env,
       INIT_JOBID(jobid);
       while ((rc = drmaa_run_job(jobid, sizeof(jobid), jt, error, sizeof(error)))
              == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
+      LOG (TEMPLATE | JOB | (rc ? WARNING : 0),
+           "start job template @%p with jobid %s%s%s\n",
+           jt, jobid, rc ? "; non-successful return code, with diagnostic: " : "", error);
       return xmlrpc_build_value (env,
                                  "((si)(ss)(ss))",
                                  "rc", rc, "jobid", jobid, "error", error);
-    } else return xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -2, "jobid", "not available", "error"
-                                      "fault occurred while deserializing job template");
-  } else return xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -1, "jobid", "not available", "error",
-                                    "fault occurred while decomposing parameter");
+    } else {
+      LOG (TEMPLATE | JOB | WARNING, "fault occurred while deserializing job template in run job\n")
+      return xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -2, "jobid", "not available", "error"
+                                 "fault occurred while deserializing job template");
+    }
+  } else {
+    LOG (TEMPLATE | JOB | WARNING, "fault occurred while decomposing parameterin run job\n");
+    return xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -1, "jobid", "not available", "error",
+                               "fault occurred while decomposing parameter");
+  }
+#else // DRMAA_XMLRPC_CGI
+#warning drmaa_run_job() is not supported by this compilation
+  return xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
+                             "xmlrpc_drmaa_run_job is not supported on this implementation");
+#endif // DRMAA_XMLRPC_CGI
 }
 
 /**
@@ -237,24 +349,20 @@ xmlrpc_drmaa_job_ps (xmlrpc_env * const env,
     int status = -1;
     while ((rc = drmaa_job_ps(jobid, &status, error, sizeof(error)))
            == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
+    LOG (JOB | (rc ? WARNING : 0),
+         "job ps jobid %s=0x%X%s%s\n",
+         jobid, status, rc ? "; non-successful return code, with diagnostic: " : "", error);
     result = xmlrpc_build_value (env, "((si)(si)(ss))", "rc", rc, "status", status, "error", error);
-  } else result = xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -1, "status", -1, "error"
-                                      "fault occurred while decomposing parameter");
+  } else {
+    LOG (JOB | WARNING, "fault occurred while decomposing parameter in job ps\n");
+    result = xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -1, "status", -1, "error"
+                                 "fault occurred while decomposing parameter");
+  }
   free (jobid);
   return result;
 }
 
 #include "config.h"
-
-struct {
-  int daemon;
-  int port;
-
-  FILE *pid_file;
-  FILE *log_file;
-  unsigned long long log_mask;
-  char *abyss_log_file_name;
-} configuration;
 
 static char *_DEFAULT_ABYSS_LOG_FILE_NAME = "/dev/null";
 
@@ -268,11 +376,27 @@ static void _init_config (void) {
   configuration.abyss_log_file_name = _DEFAULT_ABYSS_LOG_FILE_NAME;
 }
 
+static void _log_config () {
+  LOG (INFO | CONFIG, "drmaa-xmlrpc configuration: { daemon=%d, port=%d, log_mask=0x%llX }\n",
+       configuration.daemon, configuration.port, configuration.log_mask);
+}
+
 static void _config_consume (char *n, char *v, void *garbage) {
   if (strncmp (n, "daemon", 50) == 0) configuration.daemon = atoi (v);
   else if (strncmp (n, "port", 50) == 0) configuration.port = atoi (v);
+#ifndef DRMAA_XMLRPC_CGI
   else if (strncmp (n, "pid_file", 50) == 0) configuration.pid_file = fopen (v, "w");
-  else if (strncmp (n, "log_file", 50) == 0) configuration.log_file = fopen (v, "w");
+#endif
+  else if (strncmp (n, "log_file", 50) == 0)
+#ifndef DRMAA_XMLRPC_CGI
+  {
+    if (strncmp (v, "stdout", 50) == 0) configuration.log_file = stdout;
+    else if (strncmp (v, "stderr", 50) == 0) configuration.log_file = stderr;
+    else configuration.log_file = fopen (v, "w");
+  }
+#else
+    configuration.log_file = fopen (v, "a");
+#endif
   else if (strncmp (n, "log_mask", 50) == 0) configuration.log_mask = atoll (v);
   else if (strncmp (n, "abyss_log_file_name", 50) == 0) {
     char *tmp = (char*) malloc (strlen (v) + 1);
@@ -296,9 +420,11 @@ int main (int argc, char **argv) {
   conf_file = fopen (getenv (CONF_FILE_PATH_ENV_NAME_FOR_CGI), "r");
 #endif // DRMAA_XMLRPC_CGI
   if (conf_file) load (sizeof (error), error, conf_file, _config_consume, NULL);
+  _log_config ();
 
 #ifndef DRMAA_XMLRPC_CGI
   if (configuration.daemon) {
+    printf ("attempting daemon()\n");
     if (daemon (1, 0)) return -3;
     if (configuration.pid_file) {
       fprintf (configuration.pid_file, "%d", getpid());
@@ -324,9 +450,11 @@ int main (int argc, char **argv) {
 #endif // DRMAA_XMLRPC_CGI
 
   int rc = drmaa_init(NULL, error, sizeof(error));
-  if (rc) { /* TODO: log this error */
+  if (rc) {
+    LOG (SEVERE | DRMAA,
+         "failed to initialize DRMAA environment, drmaa_init returned 0x%X with diagnostic: %s\n", rc, error);
     exit (-2);
-  }
+  } else LOG (DRMAA, "initialized DRMAA environment\n");
 
 #ifndef DRMAA_XMLRPC_CGI
 #define XMLRPC_ADD_METHOD(METHOD, FUNCTION) xmlrpc_registry_add_method (&env, registryP, NULL, METHOD, FUNCTION, NULL)
@@ -344,13 +472,15 @@ int main (int argc, char **argv) {
 #ifndef DRMAA_XMLRPC_CGI
   xmlrpc_server_abyss(&env, &serverparm, XMLRPC_APSIZE(log_file_name));
 
-  if (configuration.log_file) fclose (configuration.log_file);
   if (_DEFAULT_ABYSS_LOG_FILE_NAME != configuration.abyss_log_file_name)
     free (configuration.abyss_log_file_name);
+  if (configuration.log_file == stdout || configuration.log_file == stderr) goto skip_log_file_close;
 #else // DRMAA_XMLRPC_CGI
   xmlrpc_cgi_process_call();
   xmlrpc_cgi_cleanup();
 #endif // DRMAA_XMLRPC_CGI
+  if (configuration.log_file) fclose (configuration.log_file);
+skip_log_file_close:
 
   return 0;
 }
