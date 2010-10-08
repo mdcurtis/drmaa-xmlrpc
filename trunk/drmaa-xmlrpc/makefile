@@ -30,14 +30,14 @@ install:	all
 drmaa-xmlrpc.o:	drmaa-xmlrpc.c
 	$(CC) $(CFLAGS) $(INCLUDE) drmaa-xmlrpc.c
 
-# drmaa-xmlrpc.cgi.o:	drmaa-xmlrpc.c
-#	$(CC) $(CFLAGS) $(INCLUDE) -DDRMAA_XMLRPC_CGI -o drmaa-xmlrpc.cgi.o drmaa-xmlrpc.c
+drmaa-xmlrpc.cgi.o:	drmaa-xmlrpc.c
+	$(CC) $(CFLAGS) $(INCLUDE) -DDRMAA_XMLRPC_CGI -o drmaa-xmlrpc.cgi.o drmaa-xmlrpc.c
 
 drmaa-xmlrpc:	drmaa-xmlrpc.o
 	$(LL) $(LFLAGS) -o drmaa-xmlrpc drmaa-xmlrpc.o $(LIBS_ABYSS)
 
-# drmaa-xmlrpc.cgi:	drmaa-xmlrpc.cgi.o
-#	$(LL) $(LFLAGS) -o drmaa-xmlrpc.cgi drmaa-xmlrpc.cgi.o $(LIBS_CGI)
+drmaa-xmlrpc.cgi:	drmaa-xmlrpc.cgi.o
+	$(LL) $(LFLAGS) -o drmaa-xmlrpc.cgi drmaa-xmlrpc.cgi.o $(LIBS_CGI)
 
 drmaa-xmlrpc.conf:	
 	echo daemon = 1 > drmaa-xmlrpc.conf; \
