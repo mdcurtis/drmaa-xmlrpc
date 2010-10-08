@@ -1,3 +1,12 @@
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 /*
  * drmaa-xmlrpc.c
  *
@@ -23,6 +32,8 @@
 #include <unistd.h>
 #include <limits.h>
 #include <time.h>
+#include <errno.h>
+#include <signal.h>
 
 #define CONF_FILE_PATH_ENV_NAME_FOR_CGI "DRMAA_XMLRPC_CGI_CONF_PATH"
 
@@ -34,6 +45,8 @@ struct {
   FILE *log_file;
   unsigned long long log_mask;
   char *abyss_log_file_name;
+
+  char *drmaa_init_contact;
 } configuration;
 
 #define SEVERE (1L << 63)
@@ -44,6 +57,7 @@ struct {
 #define TEMPLATE (1L << 1)
 #define JOB (1L << 2)
 #define DRMAA (1L << 3)
+#define SYSTEM (1L << 4)
 
 static char *_log_mask_to_level (unsigned long long mask) {
   if (mask & SEVERE) return "SEVERE";
@@ -374,6 +388,7 @@ static void _init_config (void) {
   configuration.log_file = NULL;
   configuration.log_mask = 0;
   configuration.abyss_log_file_name = _DEFAULT_ABYSS_LOG_FILE_NAME;
+  configuration.drmaa_init_contact = NULL;
 }
 
 static void _log_config () {
@@ -401,6 +416,9 @@ static void _config_consume (char *n, char *v, void *garbage) {
   else if (strncmp (n, "abyss_log_file_name", 50) == 0) {
     char *tmp = (char*) malloc (strlen (v) + 1);
     if (tmp) strcpy (configuration.abyss_log_file_name = tmp, v);
+  } else if (strncmp (n, "drmaa_init_contact", 50) == 0) {
+    char *tmp = (char*) malloc (strlen (v) + 1);
+    if (tmp) strcpy (configuration.drmaa_init_contact = tmp, v);
   }
 }
 
@@ -424,22 +442,29 @@ int main (int argc, char **argv) {
 
 #ifndef DRMAA_XMLRPC_CGI
   if (configuration.daemon) {
-    printf ("attempting daemon()\n");
-    if (daemon (1, 0)) return -3;
+    if (daemon (1, 0)) {
+      LOG (SEVERE | SYSTEM, "failed to daemonize\n");
+      return -3;
+    }
     if (configuration.pid_file) {
-      fprintf (configuration.pid_file, "%d", getpid());
+      if (fprintf (configuration.pid_file, "%d", getpid()) < 0) {
+        LOG (WARNING | SYSTEM, "failed to write to pid file\n");
+      }
       fclose (configuration.pid_file);
     }
   }
 
-  signal(SIGPIPE, SIG_IGN); // so as to not get killed by the OS on SIGPIPE
+  if (signal (SIGPIPE, SIG_IGN) == SIG_ERR) { // so as to not get killed by the OS on SIGPIPE
+    LOG (SEVERE | SYSTEM, "failed to set SIGPIPE handler with errno=%d(0x%X)\n", errno, errno);
+    return -2;
+  }
 
   xmlrpc_server_abyss_parms serverparm;
   xmlrpc_registry *registryP;
   xmlrpc_env env;
 
-  xmlrpc_env_init(&env);
-  registryP = xmlrpc_registry_new(&env);
+  xmlrpc_env_init (&env);
+  registryP = xmlrpc_registry_new (&env);
 
   serverparm.port_number = configuration.port;
   serverparm.registryP = registryP;
@@ -449,7 +474,7 @@ int main (int argc, char **argv) {
   xmlrpc_cgi_init(XMLRPC_CGI_NO_FLAGS);
 #endif // DRMAA_XMLRPC_CGI
 
-  int rc = drmaa_init(NULL, error, sizeof(error));
+  int rc = drmaa_init(configuration.drmaa_init_contact, error, sizeof(error));
   if (rc) {
     LOG (SEVERE | DRMAA,
          "failed to initialize DRMAA environment, drmaa_init returned 0x%X with diagnostic: %s\n", rc, error);
@@ -481,6 +506,7 @@ int main (int argc, char **argv) {
 #endif // DRMAA_XMLRPC_CGI
   if (configuration.log_file) fclose (configuration.log_file);
 skip_log_file_close:
+  if (NULL != configuration.drmaa_init_contact) free (configuration.drmaa_init_contact);
 
   return 0;
 }
