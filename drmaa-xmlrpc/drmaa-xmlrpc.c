@@ -241,14 +241,16 @@ xmlrpc_drmaa_set_vector_attribute (xmlrpc_env * const env,
   xmlrpc_decompose_value (env, x_name, "s", &name); xmlrpc_DECREF (x_name);
   int values_count = 0;
   xmlrpc_value *result = NULL;
-  if ((values = (char**) malloc (sizeof (char*) * (values_count = xmlrpc_array_size (env, x_values))))) {
-    int index = 0;
-    for (; index < values_count; index++) {
+  if ((values = (char**) malloc (sizeof (char*) * (1 + (values_count = xmlrpc_array_size (env, x_values)))))) {
+    int index;
+    for (index = 0; index < values_count + 1; index++) values [index] = NULL;
+    for (index = 0; index < values_count; index++) {
       xmlrpc_value *x_value;
       xmlrpc_array_read_item (env, x_values, index, &x_value);
       xmlrpc_decompose_value (env, x_value, "s", &(values [index]));
       xmlrpc_DECREF (x_value);
     }
+    xmlrpc_DECREF (x_values);
 
     if (!env->fault_occurred) {
 	  drmaa_job_template_t *jt = deserialize_job_template (sjt);
@@ -287,7 +289,7 @@ xmlrpc_drmaa_set_vector_attribute (xmlrpc_env * const env,
 
   if (values) {
 	  int i;
-	  for (i = 0; i < values_count; i++) free (values [i]);
+	  for (i = values_count; --i >= 0; free (values [i]));
   }
   free (name);
   free (values);
@@ -346,8 +348,8 @@ xmlrpc_drmaa_run_job (xmlrpc_env * const env,
 }
 
 /**
- * @param jobid
- * @return rc,status,error
+ * @param jobid,action
+ * @return rc,error
  */
 static xmlrpc_value *
 xmlrpc_drmaa_job_ps (xmlrpc_env * const env,
@@ -369,8 +371,39 @@ xmlrpc_drmaa_job_ps (xmlrpc_env * const env,
     result = xmlrpc_build_value (env, "((si)(si)(ss))", "rc", rc, "status", status, "error", error);
   } else {
     LOG (JOB | WARNING, "fault occurred while decomposing parameter in job ps\n");
-    result = xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -1, "status", -1, "error"
+    result = xmlrpc_build_value (env, "((si)(si)(ss))", "rc", -1, "status", -1, "error"
                                  "fault occurred while decomposing parameter");
+  }
+  free (jobid);
+  return result;
+}
+
+/**
+ * @param jobid
+ * @return rc,status,error
+ */
+static xmlrpc_value *
+xmlrpc_drmaa_control (xmlrpc_env * const env,
+                      xmlrpc_value * const param_array,
+                      void * const xmlrpc_data) {
+  INIT_ERROR_BUFFER(error);
+
+  char *jobid = NULL;
+  int action = -1;
+  xmlrpc_decompose_value (env, param_array, "(si)", &jobid, &action);
+  xmlrpc_value *result = NULL;
+  if (!env->fault_occurred) {
+    int rc;
+    while ((rc = drmaa_control (jobid, action, error, sizeof(error)))
+           == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
+    LOG (JOB | (rc ? WARNING : 0),
+         "control jobid=%s action=0x%X%s%s\n",
+         jobid, action, rc ? "; non-successful return code, with diagnostic: " : "", error);
+    result = xmlrpc_build_value (env, "((si)(ss))", "rc", rc, "error", error);
+  } else {
+    LOG (JOB | WARNING, "fault occurred while decomposing parameters in control\n");
+    result = xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error"
+                                 "fault occurred while decomposing parameters");
   }
   free (jobid);
   return result;
@@ -493,6 +526,7 @@ int main (int argc, char **argv) {
   XMLRPC_ADD_METHOD ("drmaa_set_vector_attribute", &xmlrpc_drmaa_set_vector_attribute);
   XMLRPC_ADD_METHOD ("drmaa_run_job", &xmlrpc_drmaa_run_job);
   XMLRPC_ADD_METHOD ("drmaa_job_ps", &xmlrpc_drmaa_job_ps);
+  XMLRPC_ADD_METHOD ("drmaa_control", &xmlrpc_drmaa_control);
 
 #ifndef DRMAA_XMLRPC_CGI
   xmlrpc_server_abyss(&env, &serverparm, XMLRPC_APSIZE(log_file_name));
