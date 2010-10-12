@@ -102,7 +102,7 @@ xmlrpc_drmaa_allocate_job_template (xmlrpc_env * const env,
          == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
 
   LOG (TEMPLATE | (rc ? WARNING : 0),
-       "done allocating a job template @%p%s%s\n",
+       "allocate job template @%p%s%s\n",
        jt, rc ? "; non-successful return code, with diagnostic: " : "", error);
   xmlrpc_value *result = xmlrpc_build_value (env,
                                              "((si)(s" JOB_TEMPLATE_SERIALIZED_XMLRPC_VALUE_TYPE ")(ss))",
@@ -142,7 +142,7 @@ xmlrpc_drmaa_delete_job_template (xmlrpc_env * const env,
       while ((rc = drmaa_delete_job_template (jt, error, sizeof (error)))
              == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
       LOG (TEMPLATE | (rc ? WARNING : 0),
-           "done deleting a job template @%p%s%s\n",
+           "delete a job template @%p%s%s\n",
            jt, rc ? "; non-successful return code, with diagnostic: " : "", error);
       return xmlrpc_build_value (env,
                                  "((si)(ss))",
@@ -191,7 +191,7 @@ xmlrpc_drmaa_set_attribute (xmlrpc_env * const env,
       while ((rc = drmaa_set_attribute(jt, name, value, error, sizeof (error)))
              == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
       LOG (TEMPLATE | (rc ? WARNING : 0),
-           "done setting attribute %s=%s for job template @%p%s%s\n",
+           "set attribute %s=%s for job template @%p%s%s\n",
            name, value,
            jt, rc ? "; non-successful return code, with diagnostic: " : "", error);
       result = xmlrpc_build_value (env,
@@ -263,7 +263,7 @@ xmlrpc_drmaa_set_vector_attribute (xmlrpc_env * const env,
                                      "((si)(ss))",
                                      "rc", rc, "error", error);
         LOG (TEMPLATE | (rc ? WARNING : 0),
-             "done setting attribute %s=[%s%s%s%s%s%s%s%s%s] for job template @%p%s%s\n",
+             "set vector attribute %s=[%s%s%s%s%s%s%s%s%s] for job template @%p%s%s\n",
              name,
              values_count > 0 ? values[0] : "",
              values_count > 1 ? ", " : "", values_count > 1 ? values[1] : "",
@@ -348,8 +348,8 @@ xmlrpc_drmaa_run_job (xmlrpc_env * const env,
 }
 
 /**
- * @param jobid,action
- * @return rc,error
+ * @param action
+ * @return rc,status,error
  */
 static xmlrpc_value *
 xmlrpc_drmaa_job_ps (xmlrpc_env * const env,
@@ -379,8 +379,8 @@ xmlrpc_drmaa_job_ps (xmlrpc_env * const env,
 }
 
 /**
- * @param jobid
- * @return rc,status,error
+ * @param jobid,action
+ * @return rc,error
  */
 static xmlrpc_value *
 xmlrpc_drmaa_control (xmlrpc_env * const env,
