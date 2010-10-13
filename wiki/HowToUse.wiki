@@ -1,0 +1,30 @@
+#summary Use.
+
+= Intent =
+
+First I'd like to say a couple of words for intent of this. I need a way to programmaticly control the cluster and while drmaa by itself fits the bill, I also need to build a fairly extensive front end on top of this. At the same time my sysadmin does not want to run something like an internet facing tomcat directly on the cluster head node, so this is what I've come up with. drmaa-xmlrpc is a pure relay agent and is meant to be a low level back end to something bigger running offsite. Let me be clear, no considerations whatsoever have been given to security, security is meant to be provided by something else - either your firewall and inside of the firewall is just trusted, or this is meant to loopback to something else which will provide security. Face this to the internet as is and you will get rooted.
+
+= OK, I get it, so what do I do with it =
+
+XMLRPC is a standard protocol, in theory you can use anything you like. Here's an example of java code using apache XMLRPC implementation making a job template and running it:
+
+{{{
+XmlRpcClientConfigImpl config = new XmlRpcClientConfigImpl();
+config.setServerURL(new URL("http://my.cluster.head.node:55555/RPC2"));
+client = new XmlRpcClient();
+client.setConfig(config);
+
+Object jobTemplate = ((Object[][])client.execute("drmaa_allocate_job_template", new Object[0]))[1][1];
+client.execute("drmaa_set_attribute", new Object[]{jobTemplate, "drmaa_remote_command", "helloworld.sh"});
+String jobId = (String)(((Object[][])client.execute("drmaa_run_job", new Object[]{jobTemplate}))[1][1]);
+client.execute("drmaa_delete_job_template", new Object[]{jobTemplate});
+
+int status;
+while((status = (int)(((Object[][])client.execute("drmaa_job_ps", new Object[]{jobId}))[1][1])) != DRMAA_PS_DONE); // blocks
+}}}
+
+The agent methods are of two types - there are ones that return something and other ones do not return anything. Methods that return something - like drmaa_allocate_job_template - will return in the form [["rc", return-code], ["<result description>", result-value], ["error", error-string]], that is a three cell array each cell containing a two cell array with the first thing being verbatim return code given by DRMAA, second the result value and third is any error information available; the methods that do not return anything - like drmaa_delete_job_template will not have the second array, just return code and error information. If an error has occurred, the return code will be non-zero and more information will be available in the error field. If an error occurs on a method that returns a result, the result field of the array will remain, but the information in it is generally not to be trusted.
+
+The above example as simple as it gets, naturally there's no error checking or anything like that. The intent is the "client" in this case to be the larger application that is facing the web. I am working on something fairly robust connecting to this agent in java, I may end up releasing it but it's quite a ways away.
+
+As you can see in the example, when I get the job template from drmaa_allocate_job_template, I extract it as an opaque Object, this is the correct way, I do not intend to release this part of the protocol as I may change this part in the future, while it doesn't hurt to look what's there (won't be very useful), but please do not branch your code based on what you find inside as I may change it.
