@@ -2,9 +2,11 @@
 
 = Build Instructions =
 
-One of these days I'll figure out a better way to do this, but for now this build is tailored to how I like things on my dev system at the moment.
+This service is built on top of xmlrpc-c, you can either get that through your distro repository, download from their sourceforge page, or check out from their repository. I compile against their 'advanced' branch, which is version 1.24.0 at the moment. Follow their instructions on how to install their stuff.
 
-= Details =
+After you check my source out, you should first try 'which xmlrpc-c-config' and make sure that's the one you want to use. If there isn't one, you should either add its location to your path or you can edit it in manually in drmaa-xmlrpc/makefile. You'll also need at least libdrmaa-dev package to compile. After that you can run 'make all' at the top level and you should have an executable drmaa-xmlrpc/drmaa-xmlrpc. There should also be a sample conf file. By default it'll look for that filename in the current working directory or override that with 'drmaa-xmlrpc --conf-file /path/to/your/conf-file'
+
+=== OLD PROCEDURE, DEPRECATED 10/13/2010: ===
 
 This is how it works at the moment:
 <li>The makefiles can do 'all', 'clean', and 'install'
