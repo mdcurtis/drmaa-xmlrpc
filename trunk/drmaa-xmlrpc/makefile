@@ -8,7 +8,7 @@ XMLRPC_C_CONFIG = xmlrpc-c-config
 BINPATH = ~/bin
 # CGIBINPATH = ~/www/cgi-bin
 CONFPATH = ~/etc
-CFLAGS = -O3 -Wall -c
+CFLAGS = -O3 -Wall -c `$(XMLRPC_C_CONFIG) --cflags`
 LFLAGS = -Wall -Wl,`$(XMLRPC_C_CONFIG) --ldflags | awk -F"R" '{ print $$1 "rpath," $$2 }'`
 OBJS = drmaa-xmlrpc.o
 
