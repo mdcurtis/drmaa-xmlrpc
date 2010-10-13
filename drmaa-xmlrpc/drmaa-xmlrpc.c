@@ -43,6 +43,7 @@ struct {
 
   FILE *pid_file;
   FILE *log_file;
+  char *log_file_name;
   unsigned long long log_mask;
   char *abyss_log_file_name;
 
@@ -422,6 +423,7 @@ static void _init_config (void) {
   configuration.log_mask = 0;
   configuration.abyss_log_file_name = _DEFAULT_ABYSS_LOG_FILE_NAME;
   configuration.drmaa_init_contact = NULL;
+  configuration.log_file_name = NULL;
 }
 
 static void _log_config () {
@@ -440,7 +442,11 @@ static void _config_consume (char *n, char *v, void *garbage) {
   {
     if (strncmp (v, "stdout", 50) == 0) configuration.log_file = stdout;
     else if (strncmp (v, "stderr", 50) == 0) configuration.log_file = stderr;
-    else configuration.log_file = fopen (v, "w");
+    else {
+      char *tmp = (char*) malloc (strlen (v) + 1);
+      if (tmp) strcpy (configuration.log_file_name = tmp, v);
+      configuration.log_file = fopen (v, "a");
+    }
   }
 #else
     configuration.log_file = fopen (v, "a");
@@ -453,6 +459,12 @@ static void _config_consume (char *n, char *v, void *garbage) {
     char *tmp = (char*) malloc (strlen (v) + 1);
     if (tmp) strcpy (configuration.drmaa_init_contact = tmp, v);
   }
+}
+
+void hangup (int param) {
+  if (configuration.abyss_log_file_name)
+    configuration.log_file = freopen (configuration.log_file_name, "a", configuration.log_file);
+  LOG (INFO | SYSTEM, "on SIGHUP reopened log file\n");
 }
 
 int main (int argc, char **argv) {
@@ -491,6 +503,8 @@ int main (int argc, char **argv) {
     LOG (SEVERE | SYSTEM, "failed to set SIGPIPE handler with errno=%d(0x%X)\n", errno, errno);
     return -2;
   }
+
+  if (signal (SIGHUP, hangup) == SIG_ERR) { LOG (WARNING | SYSTEM, "failed to register SIGHUP\n"); }
 
   xmlrpc_server_abyss_parms serverparm;
   xmlrpc_registry *registryP;
@@ -540,7 +554,8 @@ int main (int argc, char **argv) {
 #endif // DRMAA_XMLRPC_CGI
   if (configuration.log_file) fclose (configuration.log_file);
 skip_log_file_close:
-  if (NULL != configuration.drmaa_init_contact) free (configuration.drmaa_init_contact);
+  if (configuration.drmaa_init_contact) free (configuration.drmaa_init_contact);
+  if (configuration.log_file_name) free (configuration.log_file_name);
 
   return 0;
 }
