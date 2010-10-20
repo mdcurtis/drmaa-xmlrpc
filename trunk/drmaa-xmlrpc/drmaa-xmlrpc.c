@@ -72,7 +72,7 @@ static char *_log_mask_to_level (unsigned long long mask) {
     time_t rt; struct tm * ti; time ( &rt ); ti = localtime ( &rt ); \
     fprintf (configuration.log_file, "[%02d:%02d:%02d] %s ", \
              ti->tm_hour, ti->tm_min, ti->tm_sec, _log_mask_to_level (MASK)); \
-    fprintf (configuration.log_file, __VA_ARGS__ ); } else
+    fprintf (configuration.log_file, __VA_ARGS__ ); fflush (configuration.log_file); } else
 
 #define ERROR_DIAGNOSIS_MAX DRMAA_ERROR_STRING_BUFFER
 #define INIT_ERROR_BUFFER(X) char X[ERROR_DIAGNOSIS_MAX]; memset (X, 0, ERROR_DIAGNOSIS_MAX)

@@ -4,7 +4,7 @@ INCLUDE_PATH = `echo ~/include`
 FOREACH_PATH = ../foreach
 CONFIG_PATH = ../config
 INCLUDE = -I$(INCLUDE_PATH) -I$(FOREACH_PATH) -I$(CONFIG_PATH)
-XMLRPC_C_CONFIG = xmlrpc-c-config
+XMLRPC_C_CONFIG = xmlrpc-c-config # /path/to/your/xmlrpc-c-config
 BINPATH = ~/bin
 # CGIBINPATH = ~/www/cgi-bin
 CONFPATH = ~/etc
@@ -49,7 +49,9 @@ drmaa-xmlrpc.conf:
 	echo daemon = 1 > drmaa-xmlrpc.conf; \
 	echo port = 41334 >> drmaa-xmlrpc.conf; \
 	echo pid_file = drmaa-xmlrpc.pid >> drmaa-xmlrpc.conf; \
-	echo abyss_log_file_name = /dev/null >> drmaa-xmlrpc.conf;
+	echo abyss_log_file_name = /dev/null >> drmaa-xmlrpc.conf; \
+	echo log_file = /tmp/drmaa-xmlrpc.log >> drmaa-xmlrpc.conf; \
+	echo log_mask = -1 >> drmaa-xmlrpc.conf;
 
 clean:	
 	rm -rf *~ *.o drmaa-xmlrpc drmaa-xmlrpc.cgi drmaa-xmlrpc.conf stub-drmaa-xmlrpc
