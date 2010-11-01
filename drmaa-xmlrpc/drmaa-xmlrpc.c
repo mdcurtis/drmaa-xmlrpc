@@ -38,6 +38,10 @@
 #define CONF_FILE_PATH_ENV_NAME_FOR_CGI "DRMAA_XMLRPC_CGI_CONF_PATH"
 
 struct {
+#ifndef DRMAA_XMLRPC_CGI
+  char *conf_file;
+#endif
+
   int daemon;
   int port;
 
@@ -59,6 +63,7 @@ struct {
 #define JOB (1L << 2)
 #define DRMAA (1L << 3)
 #define SYSTEM (1L << 4)
+#define STAT (1L << 5)
 
 static char *_log_mask_to_level (unsigned long long mask) {
   if (mask & SEVERE) return "SEVERE";
@@ -410,6 +415,187 @@ xmlrpc_drmaa_control (xmlrpc_env * const env,
   return result;
 }
 
+/**
+ * @param stat
+ * @return rc,exited,error
+ */
+static xmlrpc_value *
+xmlrpc_drmaa_wifexited (xmlrpc_env * const env,
+                        xmlrpc_value * const param_array,
+                        void * const xmlrpc_data) {
+  INIT_ERROR_BUFFER(error);
+
+  int stat = -1;
+  int exited = 0;
+  xmlrpc_decompose_value (env, param_array, "(i)", &stat);
+  xmlrpc_value *result = NULL;
+  if (!env->fault_occurred) {
+    int rc;
+    while ((rc = drmaa_wifexited (&exited, stat, error, sizeof(error)))
+           == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
+    LOG (STAT | (rc ? WARNING : 0),
+         "wifexited stat=%d result=%d%s%s\n",
+         stat, exited, rc ? "; non-successful return code, with diagnostic: " : "", error);
+    result = xmlrpc_build_value (env, "((si)(si)(ss))", "rc", rc, "exited", exited, "error", error);
+  } else {
+    LOG (STAT | WARNING, "fault occurred while decomposing parameters in if exited\n");
+    result = xmlrpc_build_value (env, "((si)(si)(ss))", "rc", -1, "exited", -1, "error",
+                                 "fault occurred while decomposing parameters");
+  }
+  return result;
+}
+
+/**
+ * @param stat
+ * @return rc,exit-status,error
+ */
+static xmlrpc_value *
+xmlrpc_drmaa_wexitstatus (xmlrpc_env * const env,
+                          xmlrpc_value * const param_array,
+                          void * const xmlrpc_data) {
+  INIT_ERROR_BUFFER(error);
+
+  int stat = -1;
+  int exit_status = 0;
+  xmlrpc_decompose_value (env, param_array, "(i)", &stat);
+  xmlrpc_value *result = NULL;
+  if (!env->fault_occurred) {
+    int rc;
+    while ((rc = drmaa_wifexited (&exit_status, stat, error, sizeof(error)))
+           == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
+    LOG (STAT | (rc ? WARNING : 0),
+         "exit status stat=%d result=%d%s%s\n",
+         stat, exit_status, rc ? "; non-successful return code, with diagnostic: " : "", error);
+    result = xmlrpc_build_value (env, "((si)(si)(ss))", "rc", rc, "exit-status", exit_status, "error", error);
+  } else {
+    LOG (STAT | WARNING, "fault occurred while decomposing parameters in exit status\n");
+    result = xmlrpc_build_value (env, "((si)(si)(ss))", "rc", -1, "exit-status", -1, "error",
+                                 "fault occurred while decomposing parameters");
+  }
+  return result;
+}
+
+/**
+ * @param stat
+ * @return rc,exit-signaled,error
+ */
+static xmlrpc_value *
+xmlrpc_drmaa_wifsignaled (xmlrpc_env * const env,
+                          xmlrpc_value * const param_array,
+                          void * const xmlrpc_data) {
+  INIT_ERROR_BUFFER(error);
+
+  int stat = -1;
+  int signaled = 0;
+  xmlrpc_decompose_value (env, param_array, "(i)", &stat);
+  xmlrpc_value *result = NULL;
+  if (!env->fault_occurred) {
+    int rc;
+    while ((rc = drmaa_wifsignaled (&signaled, stat, error, sizeof(error)))
+           == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
+    LOG (STAT | (rc ? WARNING : 0),
+         "signaled stat=%d result=%d%s%s\n",
+         stat, signaled, rc ? "; non-successful return code, with diagnostic: " : "", error);
+    result = xmlrpc_build_value (env, "((si)(si)(ss))", "rc", rc, "signaled", signaled, "error", error);
+  } else {
+    LOG (STAT | WARNING, "fault occurred while decomposing parameters in if signaled\n");
+    result = xmlrpc_build_value (env, "((si)(si)(ss))", "rc", -1, "signaled", -1, "error",
+                                 "fault occurred while decomposing parameters");
+  }
+  return result;
+}
+
+/**
+ * @param stat
+ * @return rc,signal,error
+ */
+static xmlrpc_value *
+xmlrpc_drmaa_wtermsig (xmlrpc_env * const env,
+                       xmlrpc_value * const param_array,
+                       void * const xmlrpc_data) {
+  INIT_ERROR_BUFFER(error);
+
+#define SIGNAL_LENGTH 256
+  int stat = -1;
+  char signal[SIGNAL_LENGTH];
+  xmlrpc_decompose_value (env, param_array, "(i)", &stat);
+  xmlrpc_value *result = NULL;
+  if (!env->fault_occurred) {
+    int rc;
+    while ((rc = drmaa_wtermsig (signal, sizeof (signal), stat, error, sizeof(error)))
+           == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
+    LOG (STAT | (rc ? WARNING : 0),
+         "signal stat=%d result=%s%s%s\n",
+         stat, signal, rc ? "; non-successful return code, with diagnostic: " : "", error);
+    result = xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", rc, "signal", signal, "error", error);
+  } else {
+    LOG (STAT | WARNING, "fault occurred while decomposing parameters in signal\n");
+    result = xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -1, "signal", "NOTAVAILABLE", "error",
+                                 "fault occurred while decomposing parameters");
+  }
+  return result;
+}
+
+/**
+ * @param stat
+ * @return rc,core-dumped,error
+ */
+static xmlrpc_value *
+xmlrpc_drmaa_wcoredump (xmlrpc_env * const env,
+                        xmlrpc_value * const param_array,
+                        void * const xmlrpc_data) {
+  INIT_ERROR_BUFFER(error);
+
+  int stat = -1;
+  int coredump = 0;
+  xmlrpc_decompose_value (env, param_array, "(i)", &stat);
+  xmlrpc_value *result = NULL;
+  if (!env->fault_occurred) {
+    int rc;
+    while ((rc = drmaa_wcoredump (&coredump, stat, error, sizeof(error)))
+           == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
+    LOG (STAT | (rc ? WARNING : 0),
+         "core dumped stat=%d result=%d%s%s\n",
+         stat, coredump, rc ? "; non-successful return code, with diagnostic: " : "", error);
+    result = xmlrpc_build_value (env, "((si)(si)(ss))", "rc", rc, "core-dump", coredump, "error", error);
+  } else {
+    LOG (STAT | WARNING, "fault occurred while decomposing parameters in if core dumped\n");
+    result = xmlrpc_build_value (env, "((si)(si)(ss))", "rc", -1, "core-dump", -1, "error",
+                                 "fault occurred while decomposing parameters");
+  }
+  return result;
+}
+
+/**
+ * @param stat
+ * @return rc,aborted,error
+ */
+static xmlrpc_value *
+xmlrpc_drmaa_wifaborted (xmlrpc_env * const env,
+                         xmlrpc_value * const param_array,
+                         void * const xmlrpc_data) {
+  INIT_ERROR_BUFFER(error);
+
+  int stat = -1;
+  int aborted = 0;
+  xmlrpc_decompose_value (env, param_array, "(i)", &stat);
+  xmlrpc_value *result = NULL;
+  if (!env->fault_occurred) {
+    int rc;
+    while ((rc = drmaa_wifaborted (&aborted, stat, error, sizeof(error)))
+           == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
+    LOG (STAT | (rc ? WARNING : 0),
+         "core dumped stat=%d result=%d%s%s\n",
+         stat, aborted, rc ? "; non-successful return code, with diagnostic: " : "", error);
+    result = xmlrpc_build_value (env, "((si)(si)(ss))", "rc", rc, "aborted", aborted, "error", error);
+  } else {
+    LOG (STAT | WARNING, "fault occurred while decomposing parameters in if core dumped\n");
+    result = xmlrpc_build_value (env, "((si)(si)(ss))", "rc", -1, "aborted", -1, "error",
+                                 "fault occurred while decomposing parameters");
+  }
+  return result;
+}
+
 #include "config.h"
 
 static char *_DEFAULT_ABYSS_LOG_FILE_NAME = "/dev/null";
@@ -429,6 +615,11 @@ static void _init_config (void) {
 static void _log_config () {
   LOG (INFO | CONFIG, "drmaa-xmlrpc configuration: { daemon=%d, port=%d, log_mask=0x%llX }\n",
        configuration.daemon, configuration.port, configuration.log_mask);
+}
+
+
+static void _config_consume_log_mask (char *n, char *v, void *garbage) {
+  if (strncmp (n, "log_mask", 50) == 0) configuration.log_mask = atoll (v);
 }
 
 static void _config_consume (char *n, char *v, void *garbage) {
@@ -451,20 +642,26 @@ static void _config_consume (char *n, char *v, void *garbage) {
 #else
     configuration.log_file = fopen (v, "a");
 #endif
-  else if (strncmp (n, "log_mask", 50) == 0) configuration.log_mask = atoll (v);
   else if (strncmp (n, "abyss_log_file_name", 50) == 0) {
     char *tmp = (char*) malloc (strlen (v) + 1);
     if (tmp) strcpy (configuration.abyss_log_file_name = tmp, v);
   } else if (strncmp (n, "drmaa_init_contact", 50) == 0) {
     char *tmp = (char*) malloc (strlen (v) + 1);
     if (tmp) strcpy (configuration.drmaa_init_contact = tmp, v);
-  }
+  } else _config_consume_log_mask (n, v, garbage);
 }
 
 void hangup (int param) {
-  if (configuration.abyss_log_file_name)
+  if (configuration.log_file_name) {
     configuration.log_file = freopen (configuration.log_file_name, "a", configuration.log_file);
-  LOG (INFO | SYSTEM, "on SIGHUP reopened log file\n");
+    FILE *conf_file = fopen (configuration.conf_file, "r");
+    if (conf_file) {
+      INIT_ERROR_BUFFER(error);
+      load (sizeof (error), error, conf_file, _config_consume_log_mask, NULL);
+      fclose (conf_file);
+      LOG (INFO | SYSTEM, "on SIGHUP reopened log file and refreshed log_mask\n");
+    } else LOG (WARNING | SYSTEM, "on SIGHUP unable to open configuration file\n");
+  } else LOG (WARNING | SYSTEM, "on SIGHUP missing configuration file\n");
 }
 
 int main (int argc, char **argv) {
@@ -475,14 +672,17 @@ int main (int argc, char **argv) {
 #ifndef DRMAA_XMLRPC_CGI
   if (argc > 1)
     if (argc >= 3)
-      if (strncmp (argv[1], "--conf-file", 11) == 0) conf_file = fopen (argv[2], "r");
+      if (strncmp (argv[1], "--conf-file", 11) == 0) conf_file = fopen (configuration.conf_file = argv[2], "r");
       else return -1;
     else return -2;
-  else conf_file = fopen ("drmaa-xmlrpc.conf", "r");
+  else conf_file = fopen (configuration.conf_file = "drmaa-xmlrpc.conf", "r");
 #else // DRMAA_XMLRPC_CGI
   conf_file = fopen (getenv (CONF_FILE_PATH_ENV_NAME_FOR_CGI), "r");
 #endif // DRMAA_XMLRPC_CGI
-  if (conf_file) load (sizeof (error), error, conf_file, _config_consume, NULL);
+  if (conf_file) {
+    load (sizeof (error), error, conf_file, _config_consume, NULL);
+    fclose (conf_file);
+  }
   _log_config ();
 
 #ifndef DRMAA_XMLRPC_CGI
@@ -541,6 +741,12 @@ int main (int argc, char **argv) {
   XMLRPC_ADD_METHOD ("drmaa_run_job", &xmlrpc_drmaa_run_job);
   XMLRPC_ADD_METHOD ("drmaa_job_ps", &xmlrpc_drmaa_job_ps);
   XMLRPC_ADD_METHOD ("drmaa_control", &xmlrpc_drmaa_control);
+  XMLRPC_ADD_METHOD ("drmaa_wifexited", &xmlrpc_drmaa_wifexited);
+  XMLRPC_ADD_METHOD ("drmaa_wexitstatus", &xmlrpc_drmaa_wexitstatus);
+  XMLRPC_ADD_METHOD ("drmaa_wifsignaled", &xmlrpc_drmaa_wifsignaled);
+  XMLRPC_ADD_METHOD ("drmaa_wtermsig", &xmlrpc_drmaa_wtermsig);
+  XMLRPC_ADD_METHOD ("drmaa_wcoredump", &xmlrpc_drmaa_wcoredump);
+  XMLRPC_ADD_METHOD ("drmaa_wifaborted", &xmlrpc_drmaa_wifaborted);
 
 #ifndef DRMAA_XMLRPC_CGI
   xmlrpc_server_abyss(&env, &serverparm, XMLRPC_APSIZE(log_file_name));
