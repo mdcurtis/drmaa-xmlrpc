@@ -31,84 +31,17 @@
 #include <sys/signal.h>
 #include <unistd.h>
 #include <limits.h>
-#include <time.h>
 #include <errno.h>
 #include <signal.h>
 
-#define CONF_FILE_PATH_ENV_NAME_FOR_CGI "DRMAA_XMLRPC_CGI_CONF_PATH"
-
-struct {
-#ifndef DRMAA_XMLRPC_CGI
-  char *conf_file;
-#endif
-
-  int daemon;
-  int port;
-
-  FILE *pid_file;
-  FILE *log_file;
-  char *log_file_name;
-  unsigned long long log_mask;
-  char *abyss_log_file_name;
-
-  char *drmaa_init_contact;
-} configuration;
-
-#define SEVERE (1L << 63)
-#define WARNING (1L << 62)
-#define INFO (1L << 61)
-
-#define CONFIG (1L)
-#define TEMPLATE (1L << 1)
-#define JOB (1L << 2)
-#define DRMAA (1L << 3)
-#define SYSTEM (1L << 4)
-#define STAT (1L << 5)
-#define LIST (1L << 6)
-
-static char *_log_mask_to_level (unsigned long long mask) {
-  if (mask & SEVERE) return "SEVERE";
-  else if (mask & WARNING) return "WARNING";
-  else if (mask & INFO) return "INFO";
-  else return "TRACE";
-}
-
-#define LOG(MASK, ... ) \
-  if ((configuration.log_mask & (MASK)) && configuration.log_file) { \
-    time_t rt; struct tm * ti; time ( &rt ); ti = localtime ( &rt ); \
-    fprintf (configuration.log_file, "[%02d:%02d:%02d] %s ", \
-             ti->tm_hour, ti->tm_min, ti->tm_sec, _log_mask_to_level (MASK)); \
-    fprintf (configuration.log_file, __VA_ARGS__ ); fflush (configuration.log_file); } else
+#include "dxconfig.h"
+#include "dxlog.h"
 
 #define ERROR_DIAGNOSIS_MAX DRMAA_ERROR_STRING_BUFFER
 #define INIT_ERROR_BUFFER(X) char X[ERROR_DIAGNOSIS_MAX]; memset (X, 0, ERROR_DIAGNOSIS_MAX)
 #define INIT_JOBID(X) char X[DRMAA_JOBNAME_BUFFER]; memset (X, 0, DRMAA_JOBNAME_BUFFER)
 
-#define POINTER_SERIALIZED_XMLRPC_VALUE_TYPE "s"
-
-#define JOB_TEMPLATE_SERIALIZED_XMLRPC_VALUE_TYPE POINTER_SERIALIZED_XMLRPC_VALUE_TYPE
-typedef void *serialized_job_template_t;
-static serialized_job_template_t serialize_job_template (drmaa_job_template_t *jt);
-static void release_serialized_job_template (serialized_job_template_t sjt);
-static drmaa_job_template_t *deserialize_job_template (serialized_job_template_t sjt);
-
-#define ATTR_NAMES_SERIALIZED_XMLRPC_VALUE_TYPE POINTER_SERIALIZED_XMLRPC_VALUE_TYPE
-typedef void *serialized_attr_names_t;
-static serialized_attr_names_t serialize_attr_names (drmaa_attr_names_t *an);
-static void release_serialized_attr_names (serialized_attr_names_t san);
-static drmaa_attr_names_t *deserialize_attr_names (serialized_attr_names_t san);
-
-#define ATTR_VALUES_SERIALIZED_XMLRPC_VALUE_TYPE POINTER_SERIALIZED_XMLRPC_VALUE_TYPE
-typedef void *serialized_attr_values_t;
-static serialized_attr_values_t serialize_attr_values (drmaa_attr_values_t *av);
-static void release_serialized_attr_values (serialized_attr_values_t sav);
-static drmaa_attr_values_t *deserialize_attr_values (serialized_attr_values_t sav);
-
-#define JOB_IDS_SERIALIZED_XMLRPC_VALUE_TYPE POINTER_SERIALIZED_XMLRPC_VALUE_TYPE
-typedef void *serialized_job_ids_t;
-static serialized_job_ids_t serialize_job_ids (drmaa_job_ids_t *ji);
-static void release_serialized_job_ids (serialized_job_ids_t sji);
-static drmaa_job_ids_t *deserialize_job_ids (serialized_job_ids_t sji);
+#include "dxopqserial.h"
 
 /**
  * @return rc,jt,error
@@ -1068,51 +1001,6 @@ xmlrpc_drmaa_release_job_ids (xmlrpc_env * const env,
 
 #include "config.h"
 
-static char *_DEFAULT_ABYSS_LOG_FILE_NAME = "/dev/null"; // abyss log is reasonably useless for the most part
-
-static void _init_config (void) {
-  configuration.daemon = 1;
-  configuration.port = 41334;
-
-  configuration.pid_file = NULL;
-  configuration.log_file = NULL;
-  configuration.log_mask = 0;
-  configuration.abyss_log_file_name = _DEFAULT_ABYSS_LOG_FILE_NAME;
-  configuration.drmaa_init_contact = NULL;
-  configuration.log_file_name = NULL;
-}
-
-static void _log_config () {
-  LOG (INFO | CONFIG, "drmaa-xmlrpc configuration: { daemon=%d, port=%d, log_mask=0x%llX }\n",
-       configuration.daemon, configuration.port, configuration.log_mask);
-}
-
-
-static void _config_consume_log_mask (char *n, char *v, void *garbage) {
-  if (strncmp (n, "log_mask", 50) == 0) configuration.log_mask = atoll (v);
-}
-
-static void _config_consume (char *n, char *v, void *garbage) {
-  if (strncmp (n, "daemon", 50) == 0) configuration.daemon = atoi (v);
-  else if (strncmp (n, "port", 50) == 0) configuration.port = atoi (v);
-#ifndef DRMAA_XMLRPC_CGI
-  else if (strncmp (n, "pid_file", 50) == 0) configuration.pid_file = fopen (v, "w");
-#endif
-  else if (strncmp (n, "log_file", 50) == 0) {
-#ifndef DRMAA_XMLRPC_CGI
-    char *tmp = (char*) malloc (strlen (v) + 1);
-    if (tmp) strcpy (configuration.log_file_name = tmp, v);
-#endif
-    configuration.log_file = fopen (v, "a");
-  } else if (strncmp (n, "abyss_log_file_name", 50) == 0) {
-    char *tmp = (char*) malloc (strlen (v) + 1);
-    if (tmp) strcpy (configuration.abyss_log_file_name = tmp, v);
-  } else if (strncmp (n, "drmaa_init_contact", 50) == 0) {
-    char *tmp = (char*) malloc (strlen (v) + 1);
-    if (tmp) strcpy (configuration.drmaa_init_contact = tmp, v);
-  } else _config_consume_log_mask (n, v, garbage);
-}
-
 void hangup (int param) {
   if (configuration.log_file_name) {
     configuration.log_file = freopen (configuration.log_file_name, "a", configuration.log_file);
@@ -1237,38 +1125,3 @@ int main (int argc, char **argv) {
 
   return 0;
 }
-
-// helpers
-
-#define MAX_ADDRESS_ASCII_LENGTH 50
-
-static void *serialize_pointer (void *source) {
-  char *result = (char*) malloc (MAX_ADDRESS_ASCII_LENGTH);
-  sprintf (result, "%p", source);
-  return result;
-}
-
-static void release_serialized_pointer (void *sptr) { free (sptr); }
-
-static void *deserialize_pointer (void *sptr) {
-	char *address = (char*) sptr;
-	void *result = NULL;
-	sscanf (address, "%p", &result);
-	return result;
-}
-
-static serialized_job_template_t serialize_job_template (drmaa_job_template_t *jt) { return (serialized_job_template_t) serialize_pointer (jt); }
-static void release_serialized_job_template (serialized_job_template_t sjt) { release_serialized_pointer (sjt); }
-static drmaa_job_template_t *deserialize_job_template (serialized_job_template_t sjt) { return (drmaa_job_template_t*) deserialize_pointer (sjt); }
-
-static serialized_attr_names_t serialize_attr_names (drmaa_attr_names_t *an) { return (serialized_attr_names_t) serialize_pointer (an); }
-static void release_serialized_attr_names (serialized_attr_names_t san) { release_serialized_pointer (san); }
-static drmaa_attr_names_t *deserialize_attr_names (serialized_attr_names_t san) { return (drmaa_attr_names_t*) deserialize_pointer (san); }
-
-static serialized_attr_values_t serialize_attr_values (drmaa_attr_values_t *av) { return (serialized_attr_values_t) serialize_pointer (av); }
-static void release_serialized_attr_values (serialized_attr_values_t sav) { release_serialized_pointer (sav); }
-static drmaa_attr_values_t *deserialize_attr_values (serialized_attr_values_t sav) { return (drmaa_attr_values_t*) deserialize_pointer (sav); }
-
-static serialized_job_ids_t serialize_job_ids (drmaa_job_ids_t *ji) { return (serialized_job_ids_t) serialize_pointer (ji); }
-static void release_serialized_job_ids (serialized_job_ids_t sji) { release_serialized_pointer (sji); }
-static drmaa_job_ids_t *deserialize_job_ids (serialized_job_ids_t sji) { return (drmaa_job_ids_t*) deserialize_pointer (sji); }
