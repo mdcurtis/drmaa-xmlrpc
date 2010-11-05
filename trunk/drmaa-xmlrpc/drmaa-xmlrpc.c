@@ -64,6 +64,7 @@ struct {
 #define DRMAA (1L << 3)
 #define SYSTEM (1L << 4)
 #define STAT (1L << 5)
+#define LIST (1L << 6)
 
 static char *_log_mask_to_level (unsigned long long mask) {
   if (mask & SEVERE) return "SEVERE";
@@ -81,15 +82,33 @@ static char *_log_mask_to_level (unsigned long long mask) {
 
 #define ERROR_DIAGNOSIS_MAX DRMAA_ERROR_STRING_BUFFER
 #define INIT_ERROR_BUFFER(X) char X[ERROR_DIAGNOSIS_MAX]; memset (X, 0, ERROR_DIAGNOSIS_MAX)
-#define JOB_ID_MAX DRMAA_JOBNAME_BUFFER
-#define INIT_JOBID(X) char X[JOB_ID_MAX]; memset (X, 0, JOB_ID_MAX)
+#define INIT_JOBID(X) char X[DRMAA_JOBNAME_BUFFER]; memset (X, 0, DRMAA_JOBNAME_BUFFER)
 
-#define JOB_TEMPLATE_SERIALIZED_XMLRPC_VALUE_TYPE "s"
+#define POINTER_SERIALIZED_XMLRPC_VALUE_TYPE "s"
+
+#define JOB_TEMPLATE_SERIALIZED_XMLRPC_VALUE_TYPE POINTER_SERIALIZED_XMLRPC_VALUE_TYPE
 typedef void *serialized_job_template_t;
-
 static serialized_job_template_t serialize_job_template (drmaa_job_template_t *jt);
-static void release_serialized_job_template_type (serialized_job_template_t sjt);
+static void release_serialized_job_template (serialized_job_template_t sjt);
 static drmaa_job_template_t *deserialize_job_template (serialized_job_template_t sjt);
+
+#define ATTR_NAMES_SERIALIZED_XMLRPC_VALUE_TYPE POINTER_SERIALIZED_XMLRPC_VALUE_TYPE
+typedef void *serialized_attr_names_t;
+static serialized_attr_names_t serialize_attr_names (drmaa_attr_names_t *an);
+static void release_serialized_attr_names (serialized_attr_names_t san);
+static drmaa_attr_names_t *deserialize_attr_names (serialized_attr_names_t san);
+
+#define ATTR_VALUES_SERIALIZED_XMLRPC_VALUE_TYPE POINTER_SERIALIZED_XMLRPC_VALUE_TYPE
+typedef void *serialized_attr_values_t;
+static serialized_attr_values_t serialize_attr_values (drmaa_attr_values_t *av);
+static void release_serialized_attr_values (serialized_attr_values_t sav);
+static drmaa_attr_values_t *deserialize_attr_values (serialized_attr_values_t sav);
+
+#define JOB_IDS_SERIALIZED_XMLRPC_VALUE_TYPE POINTER_SERIALIZED_XMLRPC_VALUE_TYPE
+typedef void *serialized_job_ids_t;
+static serialized_job_ids_t serialize_job_ids (drmaa_job_ids_t *ji);
+static void release_serialized_job_ids (serialized_job_ids_t sji);
+static drmaa_job_ids_t *deserialize_job_ids (serialized_job_ids_t sji);
 
 /**
  * @return rc,jt,error
@@ -113,9 +132,9 @@ xmlrpc_drmaa_allocate_job_template (xmlrpc_env * const env,
   xmlrpc_value *result = xmlrpc_build_value (env,
                                              "((si)(s" JOB_TEMPLATE_SERIALIZED_XMLRPC_VALUE_TYPE ")(ss))",
                                              "rc", rc,
-                                             "jt", sjt = serialize_job_template (jt),
+                                             "job-template", sjt = serialize_job_template (jt),
                                              "error", error);
-  release_serialized_job_template_type (sjt);
+  release_serialized_job_template (sjt);
   return result;
 #else // DRMAA_XMLRPC_CGI
 #warning drmaa_allocate_job_template() is not supported by this compilation
@@ -142,7 +161,7 @@ xmlrpc_drmaa_delete_job_template (xmlrpc_env * const env,
                           &sjt);
   if (!env->fault_occurred) {
 	drmaa_job_template_t *jt = deserialize_job_template (sjt);
-    release_serialized_job_template_type (sjt);
+    release_serialized_job_template (sjt);
     if (jt != NULL) {
       int rc;
       while ((rc = drmaa_delete_job_template (jt, error, sizeof (error)))
@@ -191,7 +210,7 @@ xmlrpc_drmaa_set_attribute (xmlrpc_env * const env,
                           &sjt, &name, &value);
   if (!env->fault_occurred) {
 	drmaa_job_template_t *jt = deserialize_job_template (sjt);
-    release_serialized_job_template_type (sjt);
+    release_serialized_job_template (sjt);
     if (jt != NULL) {
       int rc;
       while ((rc = drmaa_set_attribute(jt, name, value, error, sizeof (error)))
@@ -260,7 +279,7 @@ xmlrpc_drmaa_set_vector_attribute (xmlrpc_env * const env,
 
     if (!env->fault_occurred) {
 	  drmaa_job_template_t *jt = deserialize_job_template (sjt);
-      release_serialized_job_template_type (sjt);
+      release_serialized_job_template (sjt);
       if (jt != NULL) {
         int rc;
         while ((rc = drmaa_set_vector_attribute(jt, name, (const char**) values, error, sizeof (error)))
@@ -324,7 +343,7 @@ xmlrpc_drmaa_run_job (xmlrpc_env * const env,
                           &sjt);
   if (!env->fault_occurred) {
 	drmaa_job_template_t *jt = deserialize_job_template (sjt);
-    release_serialized_job_template_type (sjt);
+    release_serialized_job_template (sjt);
     if (jt != NULL) {
       int rc;
       INIT_JOBID(jobid);
@@ -350,6 +369,56 @@ xmlrpc_drmaa_run_job (xmlrpc_env * const env,
 #warning drmaa_run_job() is not supported by this compilation
   return xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
                              "xmlrpc_drmaa_run_job is not supported on this implementation");
+#endif // DRMAA_XMLRPC_CGI
+}
+
+/**
+ * @param jt,start,end,incr
+ * @return rc,job-ids,error
+ */
+static xmlrpc_value *
+xmlrpc_drmaa_run_bulk_jobs (xmlrpc_env * const env,
+                            xmlrpc_value * const param_array,
+                            void * const xmlrpc_data) {
+#ifndef DRMAA_XMLRPC_CGI
+  INIT_ERROR_BUFFER(error);
+
+  serialized_job_template_t sjt;
+  int start, end, incr;
+  xmlrpc_decompose_value (env, param_array,
+                          "(" JOB_TEMPLATE_SERIALIZED_XMLRPC_VALUE_TYPE "iii)",
+                          &sjt, &start, &end, &incr);
+  if (!env->fault_occurred) {
+	drmaa_job_template_t *jt = deserialize_job_template (sjt);
+    release_serialized_job_template (sjt);
+    if (jt != NULL) {
+      int rc;
+      drmaa_job_ids_t *ji;
+      while ((rc = drmaa_run_bulk_jobs(&ji, jt, start, end, incr, error, sizeof(error)))
+             == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
+      LOG (TEMPLATE | JOB | (rc ? WARNING : 0),
+           "start bunk jobs template @%p with jobids @%p%s%s\n",
+           jt, ji, rc ? "; non-successful return code, with diagnostic: " : "", error);
+      serialized_job_ids_t sji;
+      xmlrpc_value *result = xmlrpc_build_value (env,
+                                                 "((si)(s" JOB_IDS_SERIALIZED_XMLRPC_VALUE_TYPE ")(ss))",
+                                                 "rc", rc, "job-ids", sji = serialize_job_ids (ji), "error", error);
+      release_serialized_job_ids (sji);
+      return result;
+    } else {
+      LOG (TEMPLATE | JOB | WARNING, "fault occurred while deserializing job template in run bulk jobs\n");
+      return xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -2, "job-ids", "", "error"
+                                 "fault occurred while deserializing job template");
+    }
+  } else {
+    LOG (TEMPLATE | JOB | WARNING, "fault occurred while decomposing parameter in run bulk jobs\n");
+    return xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -1, "job-ids", "", "error",
+                               "fault occurred while decomposing parameter");
+  }
+#else // DRMAA_XMLRPC_CGI
+#warning drmaa_run_bulk_jobs() is not supported by this compilation
+  return xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
+                             "xmlrpc_drmaa_run_bulk_jobs is not supported on this implementation");
 #endif // DRMAA_XMLRPC_CGI
 }
 
@@ -596,9 +665,410 @@ xmlrpc_drmaa_wifaborted (xmlrpc_env * const env,
   return result;
 }
 
+/**
+ * @return rc,attribute-names,error
+ */
+static xmlrpc_value *
+xmlrpc_drmaa_get_attribute_names (xmlrpc_env * const env,
+                                  xmlrpc_value * const param_array,
+                                  void * const xmlrpc_data) {
+#ifndef DRMAA_XMLRPC_CGI
+  drmaa_attr_names_t *an = NULL;
+  INIT_ERROR_BUFFER(error);
+  serialized_attr_names_t san;
+
+  int rc;
+  while ((rc = drmaa_get_attribute_names (&an, error, sizeof (error)))
+         == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
+
+  LOG (LIST | (rc ? WARNING : 0),
+       "get attribute names @%p%s%s\n",
+       an, rc ? "; non-successful return code, with diagnostic: " : "", error);
+  xmlrpc_value *result = xmlrpc_build_value (env,
+                                             "((si)(s" ATTR_NAMES_SERIALIZED_XMLRPC_VALUE_TYPE ")(ss))",
+                                             "rc", rc,
+                                             "attribute-names", san = serialize_attr_names (an),
+                                             "error", error);
+  release_serialized_attr_names (san);
+  return result;
+#else // DRMAA_XMLRPC_CGI
+#warning drmaa_get_attribute_names() is not supported by this compilation
+  LOG (LIST | INFO, "get attribute names is not supported with this compilation");
+  return xmlrpc_build_value (env,
+                             "((si)(s" ATTR_NAMES_SERIALIZED_XMLRPC_VALUE_TYPE ")(ss))",
+                             "rc", -1, "attribute-names", "",  "error",
+                             "xmlrpc_drmaa_get_attribute_names is not supported on this compilation");
+#endif // DRMAA_XMLRPC_CGI
+}
+
+/**
+ * @return rc,vector-attribute-names,error
+ */
+static xmlrpc_value *
+xmlrpc_drmaa_get_vector_attribute_names (xmlrpc_env * const env,
+                                         xmlrpc_value * const param_array,
+                                         void * const xmlrpc_data) {
+#ifndef DRMAA_XMLRPC_CGI
+  drmaa_attr_names_t *an = NULL;
+  INIT_ERROR_BUFFER(error);
+  serialized_attr_names_t san;
+
+  int rc;
+  while ((rc = drmaa_get_vector_attribute_names (&an, error, sizeof (error)))
+         == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
+
+  LOG (LIST | (rc ? WARNING : 0),
+       "get vector attribute names @%p%s%s\n",
+       an, rc ? "; non-successful return code, with diagnostic: " : "", error);
+  xmlrpc_value *result = xmlrpc_build_value (env,
+                                             "((si)(s" ATTR_NAMES_SERIALIZED_XMLRPC_VALUE_TYPE ")(ss))",
+                                             "rc", rc,
+                                             "vector-attribute-names", san = serialize_attr_names (an),
+                                             "error", error);
+  release_serialized_attr_names (san);
+  return result;
+#else // DRMAA_XMLRPC_CGI
+#warning drmaa_get_vector_attribute_names() is not supported by this compilation
+  LOG (LIST | INFO, "get vector attribute names is not supported with this compilation");
+  return xmlrpc_build_value (env,
+                             "((si)(s" ATTR_NAMES_SERIALIZED_XMLRPC_VALUE_TYPE ")(ss))",
+                             "rc", -1, "attribute-names", "",  "error",
+                             "xmlrpc_drmaa_get_attribute_names is not supported on this compilation");
+#endif // DRMAA_XMLRPC_CGI
+}
+
+/**
+ * @param attribute-names
+ * @return rc,attribute-name,error
+ */
+static xmlrpc_value *
+xmlrpc_drmaa_get_next_attr_name (xmlrpc_env * const env,
+                                 xmlrpc_value * const param_array,
+                                 void * const xmlrpc_data) {
+#ifndef DRMAA_XMLRPC_CGI
+  INIT_ERROR_BUFFER(error);
+
+  serialized_attr_names_t san;
+  char name [DRMAA_ATTR_BUFFER];
+  xmlrpc_value *result = NULL;
+  xmlrpc_decompose_value (env, param_array,
+                          "(" ATTR_NAMES_SERIALIZED_XMLRPC_VALUE_TYPE ")",
+                          &san);
+  if (!env->fault_occurred) {
+	drmaa_attr_names_t *an = deserialize_attr_names (san);
+    release_serialized_attr_names (san);
+    if (an != NULL) {
+      int rc;
+      while ((rc = drmaa_get_next_attr_name (an, name, sizeof (name)))
+             == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
+      LOG (LIST | (rc ? WARNING : 0),
+           "get next attribute name %s for attribute names @%p%s%s\n",
+           name,
+           an, rc ? "; non-successful return code, with diagnostic: " : "", error);
+      result = xmlrpc_build_value (env,
+                                   "((si)(ss)(ss))",
+                                   "rc", rc, "attribute-name", name, "error", error);
+    } else {
+      LOG (LIST | WARNING, "fault occurred while deserializing attribute names in get next attribute name\n");
+      result = xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -2, "attribute-name", "not-available", "error",
+                                   "fault occurred while deserializing attribute names");
+    }
+  } else {
+    LOG (LIST | WARNING, "fault occurred while decomposing parameters in get next attribute name\n");
+    result = xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -1, "attribute-name", "not-available", "error",
+                                 "fault occurred while decomposing parameters");
+  }
+  return result;
+#else // DRMAA_XMLRPC_CGI
+#warning drmaa_get_next_attr_name() is not supported by this compilation
+  return xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -1, "attribute-name", "not-available", "error",
+                             "drmaa_get_next_attr_name is not supported on this implementation");
+#endif // DRMAA_XMLRPC_CGI
+}
+
+/**
+ * @param attribute-names
+ * @return rc,error
+ */
+static xmlrpc_value *
+xmlrpc_drmaa_release_attr_names (xmlrpc_env * const env,
+                                 xmlrpc_value * const param_array,
+                                 void * const xmlrpc_data) {
+#ifndef DRMAA_XMLRPC_CGI
+  INIT_ERROR_BUFFER(error);
+
+  serialized_attr_names_t san;
+  xmlrpc_value *result = NULL;
+  xmlrpc_decompose_value (env, param_array,
+                          "(" ATTR_NAMES_SERIALIZED_XMLRPC_VALUE_TYPE ")",
+                          &san);
+  if (!env->fault_occurred) {
+	drmaa_attr_names_t *an = deserialize_attr_names (san);
+    release_serialized_attr_names (san);
+    if (an != NULL) {
+      drmaa_release_attr_names (an);
+      LOG (LIST, "release attribute names %p\n", an);
+      result = xmlrpc_build_value (env,
+                                   "((si)(ss))",
+                                   "rc", 0, "error", error);
+    } else {
+      LOG (LIST | WARNING, "fault occurred while deserializing attribute names in release attribute names\n");
+      result = xmlrpc_build_value (env, "((si)(ss))", "rc", -2, "error",
+                                   "fault occurred while deserializing attribute names");
+    }
+  } else {
+    LOG (LIST | WARNING, "fault occurred while decomposing parameters in release attribute names\n");
+    result = xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
+                                 "fault occurred while decomposing parameters");
+  }
+  return result;
+#else // DRMAA_XMLRPC_CGI
+#warning drmaa_release_attr_names() is not supported by this compilation
+  return xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
+                             "drmaa_release_attr_names is not supported on this implementation");
+#endif // DRMAA_XMLRPC_CGI
+}
+
+/**
+ * @return rc,attribute-values,error
+ */
+static xmlrpc_value *
+xmlrpc_drmaa_get_vector_attribute (xmlrpc_env * const env,
+                                   xmlrpc_value * const param_array,
+                                   void * const xmlrpc_data) {
+#ifndef DRMAA_XMLRPC_CGI
+  drmaa_attr_values_t *av = NULL;
+  INIT_ERROR_BUFFER(error);
+  serialized_attr_values_t sav = NULL;
+
+  serialized_job_template_t sjt;
+  char *name = NULL;
+  xmlrpc_value *result = NULL;
+  xmlrpc_decompose_value (env, param_array,
+                          "(" JOB_TEMPLATE_SERIALIZED_XMLRPC_VALUE_TYPE "s)",
+                          &sjt, &name);
+  if (!env->fault_occurred) {
+    drmaa_job_template_t *jt = deserialize_job_template (sjt);
+    release_serialized_job_template (sjt);
+
+    int rc;
+    while ((rc = drmaa_get_vector_attribute (jt, name, &av, error, sizeof (error)))
+           == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
+
+    LOG (TEMPLATE | (rc ? WARNING : 0),
+         "get attribute values @%p%s%s\n",
+         av, rc ? "; non-successful return code, with diagnostic: " : "", error);
+    result = xmlrpc_build_value (env,
+                                 "((si)(s" ATTR_VALUES_SERIALIZED_XMLRPC_VALUE_TYPE ")(ss))",
+                                 "rc", rc,
+                                 "attribute-values", sav = serialize_attr_values (av),
+                                 "error", error);
+    release_serialized_attr_values (sav);
+  } else {
+    LOG (TEMPLATE | WARNING, "fault occurred while decomposing parameters in get vector attribute\n");
+    result = xmlrpc_build_value (env, "((si)(s" ATTR_VALUES_SERIALIZED_XMLRPC_VALUE_TYPE ")(ss))",
+                                 "rc", -1, "attribute-values", "", "error"
+                                 "fault occurred while decomposing parameters");
+  }
+  free (name);
+  return result;
+#else // DRMAA_XMLRPC_CGI
+#warning drmaa_get_attribute_values() is not supported by this compilation
+  LOG (TEMPLATE | INFO, "get attribute values is not supported with this compilation");
+  return xmlrpc_build_value (env,
+                             "((si)(s" ATTR_VALUES_SERIALIZED_XMLRPC_VALUE_TYPE ")(ss))",
+                             "rc", -1, "attribute-values", "",  "error",
+                             "xmlrpc_drmaa_get_attribute_values is not supported on this compilation");
+#endif // DRMAA_XMLRPC_CGI
+}
+
+/**
+ * @param attribute-values
+ * @return rc,attribute-value,error
+ */
+static xmlrpc_value *
+xmlrpc_drmaa_get_next_attr_value (xmlrpc_env * const env,
+                                  xmlrpc_value * const param_array,
+                                  void * const xmlrpc_data) {
+#ifndef DRMAA_XMLRPC_CGI
+  INIT_ERROR_BUFFER(error);
+
+  serialized_attr_values_t sav;
+  char value [DRMAA_ATTR_BUFFER];
+  xmlrpc_value *result = NULL;
+  xmlrpc_decompose_value (env, param_array,
+                          "(" ATTR_VALUES_SERIALIZED_XMLRPC_VALUE_TYPE ")",
+                          &sav);
+  if (!env->fault_occurred) {
+	drmaa_attr_values_t *av = deserialize_attr_values (sav);
+    release_serialized_attr_values (sav);
+    if (av != NULL) {
+      int rc;
+      while ((rc = drmaa_get_next_attr_value (av, value, sizeof (value)))
+             == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
+      LOG (TEMPLATE | (rc ? WARNING : 0),
+           "get next attribute value %s for attribute values @%p%s%s\n",
+           value,
+           av, rc ? "; non-successful return code, with diagnostic: " : "", error);
+      result = xmlrpc_build_value (env,
+                                   "((si)(ss)(ss))",
+                                   "rc", rc, "attribute-value", value, "error", error);
+    } else {
+      LOG (TEMPLATE | WARNING, "fault occurred while deserializing attribute names in get next attribute value\n");
+      result = xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -2, "attribute-value", "not-available", "error",
+                                   "fault occurred while deserializing attribute names");
+    }
+  } else {
+    LOG (TEMPLATE | WARNING, "fault occurred while decomposing parameters in get next attribute name\n");
+    result = xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -1, "attribute-value", "not-available", "error",
+                                 "fault occurred while decomposing parameters");
+  }
+  return result;
+#else // DRMAA_XMLRPC_CGI
+#warning drmaa_get_next_attr_name() is not supported by this compilation
+  return xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -1, "attribute-value", "not-available", "error",
+                             "drmaa_get_next_attr_name is not supported on this implementation");
+#endif // DRMAA_XMLRPC_CGI
+}
+
+/**
+ * @param attribute-values
+ * @return rc,error
+ */
+static xmlrpc_value *
+xmlrpc_drmaa_release_attr_values (xmlrpc_env * const env,
+                                  xmlrpc_value * const param_array,
+                                  void * const xmlrpc_data) {
+#ifndef DRMAA_XMLRPC_CGI
+  INIT_ERROR_BUFFER(error);
+
+  serialized_attr_values_t sav;
+  xmlrpc_value *result = NULL;
+  xmlrpc_decompose_value (env, param_array,
+                          "(" ATTR_VALUES_SERIALIZED_XMLRPC_VALUE_TYPE ")",
+                          &sav);
+  if (!env->fault_occurred) {
+	drmaa_attr_names_t *av = deserialize_attr_names (sav);
+    release_serialized_attr_names (sav);
+    if (av != NULL) {
+      drmaa_release_attr_values (sav);
+      LOG (TEMPLATE, "release attribute names %p\n", av);
+      result = xmlrpc_build_value (env,
+                                   "((si)(ss))",
+                                   "rc", 0, "error", error);
+    } else {
+      LOG (TEMPLATE | WARNING, "fault occurred while deserializing attribute names in release attribute values\n");
+      result = xmlrpc_build_value (env, "((si)(ss))", "rc", -2, "error",
+                                   "fault occurred while deserializing attribute values");
+    }
+  } else {
+    LOG (TEMPLATE | WARNING, "fault occurred while decomposing parameters in release attribute values\n");
+    result = xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
+                                 "fault occurred while decomposing parameters");
+  }
+  return result;
+#else // DRMAA_XMLRPC_CGI
+#warning drmaa_release_attr_values() is not supported by this compilation
+  return xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
+                             "drmaa_release_attr_values is not supported on this implementation");
+#endif // DRMAA_XMLRPC_CGI
+}
+
+/**
+ * @param job-ids
+ * @return rc,job-id,error
+ */
+static xmlrpc_value *
+xmlrpc_drmaa_get_next_job_id (xmlrpc_env * const env,
+                              xmlrpc_value * const param_array,
+                              void * const xmlrpc_data) {
+#ifndef DRMAA_XMLRPC_CGI
+  INIT_ERROR_BUFFER(error);
+
+  serialized_job_ids_t sji;
+  INIT_JOBID(jobid);
+  xmlrpc_value *result = NULL;
+  xmlrpc_decompose_value (env, param_array,
+                          "(" JOB_IDS_SERIALIZED_XMLRPC_VALUE_TYPE ")",
+                          &sji);
+  if (!env->fault_occurred) {
+	drmaa_job_ids_t *ji = deserialize_job_ids (sji);
+    release_serialized_attr_names (sji);
+    if (ji != NULL) {
+      int rc;
+      while ((rc = drmaa_get_next_job_id (ji, jobid, sizeof (jobid)))
+             == DRMAA_ERRNO_DRM_COMMUNICATION_FAILURE);
+      LOG (LIST | (rc ? WARNING : 0),
+           "get next job id %s for job ids @%p%s%s\n",
+           jobid,
+           ji, rc ? "; non-successful return code, with diagnostic: " : "", error);
+      result = xmlrpc_build_value (env,
+                                   "((si)(ss)(ss))",
+                                   "rc", rc, "job-id", jobid, "error", error);
+    } else {
+      LOG (LIST | WARNING, "fault occurred while deserializing job ids in get next job id\n");
+      result = xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -2, "job-id", "not-available", "error",
+                                   "fault occurred while deserializing job ids");
+    }
+  } else {
+    LOG (LIST | WARNING, "fault occurred while decomposing parameters in get next job id\n");
+    result = xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -1, "job-id", "not-available", "error",
+                                 "fault occurred while decomposing parameters");
+  }
+  return result;
+#else // DRMAA_XMLRPC_CGI
+#warning drmaa_get_next_job_id() is not supported by this compilation
+  return xmlrpc_build_value (env, "((si)(ss)(ss))", "rc", -1, "job-id", "not-available", "error",
+                             "drmaa_get_next_job_id is not supported on this implementation");
+#endif // DRMAA_XMLRPC_CGI
+}
+
+/**
+ * @param job-ids
+ * @return rc,error
+ */
+static xmlrpc_value *
+xmlrpc_drmaa_release_job_ids (xmlrpc_env * const env,
+                              xmlrpc_value * const param_array,
+                              void * const xmlrpc_data) {
+#ifndef DRMAA_XMLRPC_CGI
+  INIT_ERROR_BUFFER(error);
+
+  serialized_job_ids_t sji;
+  xmlrpc_value *result = NULL;
+  xmlrpc_decompose_value (env, param_array,
+                          "(" JOB_IDS_SERIALIZED_XMLRPC_VALUE_TYPE ")",
+                          &sji);
+  if (!env->fault_occurred) {
+	drmaa_job_ids_t *ji = deserialize_job_ids (sji);
+    release_serialized_job_ids (sji);
+    if (ji != NULL) {
+      drmaa_release_job_ids (ji);
+      LOG (LIST, "release job ids %p\n", ji);
+      result = xmlrpc_build_value (env, "((si)(ss))", "rc", 0, "error", error);
+    } else {
+      LOG (LIST | WARNING, "fault occurred while deserializing job ids in release job ids\n");
+      result = xmlrpc_build_value (env, "((si)(ss))", "rc", -2, "error",
+                                   "fault occurred while deserializing job ids");
+    }
+  } else {
+    LOG (LIST | WARNING, "fault occurred while decomposing parameters in release job ids\n");
+    result = xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
+                                 "fault occurred while decomposing parameters");
+  }
+  return result;
+#else // DRMAA_XMLRPC_CGI
+#warning drmaa_release_job_ids() is not supported by this compilation
+  return xmlrpc_build_value (env, "((si)(ss))", "rc", -1, "error",
+                             "drmaa_release_job_ids is not supported on this implementation");
+#endif // DRMAA_XMLRPC_CGI
+}
+
+// end of DRMAA stuff
+
 #include "config.h"
 
-static char *_DEFAULT_ABYSS_LOG_FILE_NAME = "/dev/null";
+static char *_DEFAULT_ABYSS_LOG_FILE_NAME = "/dev/null"; // abyss log is reasonably useless for the most part
 
 static void _init_config (void) {
   configuration.daemon = 1;
@@ -628,21 +1098,13 @@ static void _config_consume (char *n, char *v, void *garbage) {
 #ifndef DRMAA_XMLRPC_CGI
   else if (strncmp (n, "pid_file", 50) == 0) configuration.pid_file = fopen (v, "w");
 #endif
-  else if (strncmp (n, "log_file", 50) == 0)
+  else if (strncmp (n, "log_file", 50) == 0) {
 #ifndef DRMAA_XMLRPC_CGI
-  {
-    if (strncmp (v, "stdout", 50) == 0) configuration.log_file = stdout;
-    else if (strncmp (v, "stderr", 50) == 0) configuration.log_file = stderr;
-    else {
-      char *tmp = (char*) malloc (strlen (v) + 1);
-      if (tmp) strcpy (configuration.log_file_name = tmp, v);
-      configuration.log_file = fopen (v, "a");
-    }
-  }
-#else
-    configuration.log_file = fopen (v, "a");
+    char *tmp = (char*) malloc (strlen (v) + 1);
+    if (tmp) strcpy (configuration.log_file_name = tmp, v);
 #endif
-  else if (strncmp (n, "abyss_log_file_name", 50) == 0) {
+    configuration.log_file = fopen (v, "a");
+  } else if (strncmp (n, "abyss_log_file_name", 50) == 0) {
     char *tmp = (char*) malloc (strlen (v) + 1);
     if (tmp) strcpy (configuration.abyss_log_file_name = tmp, v);
   } else if (strncmp (n, "drmaa_init_contact", 50) == 0) {
@@ -747,19 +1209,29 @@ int main (int argc, char **argv) {
   XMLRPC_ADD_METHOD ("drmaa_wtermsig", &xmlrpc_drmaa_wtermsig);
   XMLRPC_ADD_METHOD ("drmaa_wcoredump", &xmlrpc_drmaa_wcoredump);
   XMLRPC_ADD_METHOD ("drmaa_wifaborted", &xmlrpc_drmaa_wifaborted);
+  XMLRPC_ADD_METHOD ("drmaa_get_attribute_names", &xmlrpc_drmaa_get_attribute_names);
+  XMLRPC_ADD_METHOD ("drmaa_get_vector_attribute_names", &xmlrpc_drmaa_get_vector_attribute_names);
+  XMLRPC_ADD_METHOD ("drmaa_get_next_attr_name", &xmlrpc_drmaa_get_next_attr_name);
+  XMLRPC_ADD_METHOD ("drmaa_release_attr_names", &xmlrpc_drmaa_release_attr_names);
+  XMLRPC_ADD_METHOD ("drmaa_get_vector_attribute", &xmlrpc_drmaa_get_vector_attribute);
+  XMLRPC_ADD_METHOD ("drmaa_get_next_attr_value", &xmlrpc_drmaa_get_next_attr_value);
+  XMLRPC_ADD_METHOD ("drmaa_release_attr_values", &xmlrpc_drmaa_release_attr_values);
+  XMLRPC_ADD_METHOD ("drmaa_get_next_job_id", &xmlrpc_drmaa_get_next_job_id);
+  XMLRPC_ADD_METHOD ("drmaa_release_job_ids", &xmlrpc_drmaa_release_job_ids);
+  XMLRPC_ADD_METHOD ("drmaa_run_bulk_jobs", &xmlrpc_drmaa_run_bulk_jobs);
 
 #ifndef DRMAA_XMLRPC_CGI
   xmlrpc_server_abyss(&env, &serverparm, XMLRPC_APSIZE(log_file_name));
 
   if (_DEFAULT_ABYSS_LOG_FILE_NAME != configuration.abyss_log_file_name)
     free (configuration.abyss_log_file_name);
-  if (configuration.log_file == stdout || configuration.log_file == stderr) goto skip_log_file_close;
 #else // DRMAA_XMLRPC_CGI
   xmlrpc_cgi_process_call();
   xmlrpc_cgi_cleanup();
 #endif // DRMAA_XMLRPC_CGI
+  rc = drmaa_exit(error, sizeof(error));
+  LOG (DRMAA | (rc ? WARNING : 0), "drmaa exit status 0x%X%s%s\n", rc, rc ? ": " : "", rc ? error : "");
   if (configuration.log_file) fclose (configuration.log_file);
-skip_log_file_close:
   if (configuration.drmaa_init_contact) free (configuration.drmaa_init_contact);
   if (configuration.log_file_name) free (configuration.log_file_name);
 
@@ -770,19 +1242,33 @@ skip_log_file_close:
 
 #define MAX_ADDRESS_ASCII_LENGTH 50
 
-static serialized_job_template_t serialize_job_template (drmaa_job_template_t *jt) {
+static void *serialize_pointer (void *source) {
   char *result = (char*) malloc (MAX_ADDRESS_ASCII_LENGTH);
-  sprintf (result, "%p", jt);
-  return (serialized_job_template_t) result;
-}
-
-static void release_serialized_job_template_type (serialized_job_template_t sjt) {
-  free (sjt);
-}
-
-static drmaa_job_template_t *deserialize_job_template (serialized_job_template_t sjt) {
-  char *address = (char*) sjt;
-  drmaa_job_template_t *result = NULL;
-  sscanf (address, "%p", &result);
+  sprintf (result, "%p", source);
   return result;
 }
+
+static void release_serialized_pointer (void *sptr) { free (sptr); }
+
+static void *deserialize_pointer (void *sptr) {
+	char *address = (char*) sptr;
+	void *result = NULL;
+	sscanf (address, "%p", &result);
+	return result;
+}
+
+static serialized_job_template_t serialize_job_template (drmaa_job_template_t *jt) { return (serialized_job_template_t) serialize_pointer (jt); }
+static void release_serialized_job_template (serialized_job_template_t sjt) { release_serialized_pointer (sjt); }
+static drmaa_job_template_t *deserialize_job_template (serialized_job_template_t sjt) { return (drmaa_job_template_t*) deserialize_pointer (sjt); }
+
+static serialized_attr_names_t serialize_attr_names (drmaa_attr_names_t *an) { return (serialized_attr_names_t) serialize_pointer (an); }
+static void release_serialized_attr_names (serialized_attr_names_t san) { release_serialized_pointer (san); }
+static drmaa_attr_names_t *deserialize_attr_names (serialized_attr_names_t san) { return (drmaa_attr_names_t*) deserialize_pointer (san); }
+
+static serialized_attr_values_t serialize_attr_values (drmaa_attr_values_t *av) { return (serialized_attr_values_t) serialize_pointer (av); }
+static void release_serialized_attr_values (serialized_attr_values_t sav) { release_serialized_pointer (sav); }
+static drmaa_attr_values_t *deserialize_attr_values (serialized_attr_values_t sav) { return (drmaa_attr_values_t*) deserialize_pointer (sav); }
+
+static serialized_job_ids_t serialize_job_ids (drmaa_job_ids_t *ji) { return (serialized_job_ids_t) serialize_pointer (ji); }
+static void release_serialized_job_ids (serialized_job_ids_t sji) { release_serialized_pointer (sji); }
+static drmaa_job_ids_t *deserialize_job_ids (serialized_job_ids_t sji) { return (drmaa_job_ids_t*) deserialize_pointer (sji); }
