@@ -33,7 +33,7 @@ drmaa-xmlrpc:	$(OBJS)
 	$(LL) $(LFLAGS) -o drmaa-xmlrpc $(OBJS) $(LIBS_ABYSS)
 
 dxconfig.o:	dxconfig.c dxconfig.h
-	$(CC) $(CFLAGS) $(INLCUDE) dxconfig.c
+	$(CC) $(CFLAGS) $(INCLUDE) dxconfig.c
 
 dxlog.o:	dxlog.c dxlog.h
 	$(CC) $(CFLAGS) $(INCLUDE) dxlog.c
