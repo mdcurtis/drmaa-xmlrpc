@@ -1041,12 +1041,13 @@ int main (int argc, char **argv) {
       LOG (SEVERE | SYSTEM, "failed to daemonize\n");
       return -3;
     }
-    if (configuration.pid_file) {
-      if (fprintf (configuration.pid_file, "%d", getpid()) < 0) {
-        LOG (WARNING | SYSTEM, "failed to write to pid file\n");
-      }
-      fclose (configuration.pid_file);
+  }
+
+  if (configuration.pid_file) {
+    if (fprintf (configuration.pid_file, "%d", getpid()) < 0) {
+      LOG (WARNING | SYSTEM, "failed to write to pid file\n");
     }
+    fclose (configuration.pid_file);
   }
 
   if (signal (SIGPIPE, SIG_IGN) == SIG_ERR) { // so as to not get killed by the OS on SIGPIPE
